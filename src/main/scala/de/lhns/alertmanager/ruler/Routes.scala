@@ -10,7 +10,7 @@ import io.circe.yaml.syntax._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
 import org.http4s.headers.`Content-Type`
-import org.http4s.{DecodeFailure, EntityDecoder, EntityEncoder, HttpRoutes, HttpVersion, MalformedMessageBodyFailure, MediaType, Uri}
+import org.http4s.{DecodeFailure, EntityDecoder, EntityEncoder, HttpRoutes, HttpVersion, MalformedMessageBodyFailure, MediaType, Request, Response, Uri}
 import org.log4s.getLogger
 
 object Routes {
@@ -35,8 +35,21 @@ object Routes {
            ): HttpRoutes[IO] = {
     val httpApp = client.toHttpApp
 
+    def alertmanager(request: Request[IO]): IO[Response[IO]] = httpApp(
+      request
+        .withHttpVersion(HttpVersion.`HTTP/1.1`)
+        .withDestination(
+          request.uri
+            .withSchemeAndAuthority(alertmanagerUrl)
+            .withPath((
+              if (request.pathInfo.isEmpty) alertmanagerUrl.path
+              else alertmanagerUrl.path.concat(request.pathInfo)
+              ).toAbsolute)
+        )
+    )
+
     HttpRoutes.of {
-      case GET -> Root / "config" / "v1" / "rules" =>
+      case GET -> Root / "prometheus" / "config" / "v1" / "rules" =>
         rulesConfig.listRuleGroups
           .map(namespaces => Json.fromFields(namespaces.map {
             case (namespace, groups) => namespace -> Json.fromValues(groups.map(_.json))
@@ -44,41 +57,39 @@ object Routes {
           .map(_.asYaml)
           .flatMap(Ok(_))
 
-      case GET -> Root / "config" / "v1" / "rules" / namespace =>
+      case GET -> Root / "prometheus" / "config" / "v1" / "rules" / namespace =>
         rulesConfig.getRuleGroupsByNamespace(namespace)
           .map(groups => Json.fromValues(groups.map(_.json)))
           .map(_.asYaml)
           .flatMap(Ok(_))
 
-      case GET -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+      case GET -> Root / "prometheus" / "config" / "v1" / "rules" / namespace / groupName =>
         rulesConfig.getRuleGroup(namespace, groupName)
           .map(_.map(_.json.asYaml))
           .flatMap(_.fold(NotFound())(Ok(_)))
 
-      case request@POST -> Root / "config" / "v1" / "rules" / namespace =>
+      case request@POST -> Root / "prometheus" / "config" / "v1" / "rules" / namespace =>
         request.as[YamlSyntax].flatMap { rule =>
           rulesConfig.setRuleGroup(namespace, RuleGroup(rule.tree)).flatMap(_ => Accepted())
         }
 
-      case DELETE -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+      case DELETE -> Root / "prometheus" / "config" / "v1" / "rules" / namespace / groupName =>
         rulesConfig.deleteRuleGroup(namespace, groupName).flatMap(_ => Accepted())
 
-      case DELETE -> Root / "config" / "v1" / "rules" / namespace =>
+      case DELETE -> Root / "prometheus" / "config" / "v1" / "rules" / namespace =>
         rulesConfig.deleteNamespace(namespace).flatMap(_ => Accepted())
 
+      case GET -> Root / "api" / "v2" / "status" =>
+        NotFound()
+
+      case request@_ -> "alertmanager" /: path =>
+        alertmanager(request.withPathInfo(path)).map { response =>
+          logger.debug(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
+          response
+        }
+
       case request =>
-        httpApp(
-          request
-            .withHttpVersion(HttpVersion.`HTTP/1.1`)
-            .withDestination(
-              request.uri
-                .withSchemeAndAuthority(alertmanagerUrl)
-                .withPath((
-                  if (request.pathInfo.isEmpty) alertmanagerUrl.path
-                  else alertmanagerUrl.path.concat(request.pathInfo)
-                  ).toAbsolute)
-            )
-        ).map { response =>
+        alertmanager(request).map { response =>
           logger.debug(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
           response
         }
