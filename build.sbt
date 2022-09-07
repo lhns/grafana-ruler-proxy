@@ -17,7 +17,27 @@ val V = new {
   val scalaTrustmanagerUtils = "0.3.4"
 }
 
+lazy val commonSettings: Seq[Setting[_]] = Seq(
+  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
+  libraryDependencies ++= Seq(
+    "ch.qos.logback" % "logback-classic" % V.logbackClassic % Test,
+    "de.lolhens" %% "munit-tagless-final" % V.munitTaglessFinal % Test,
+    "org.scalameta" %% "munit" % V.munit % Test
+  ),
+  testFrameworks += new TestFramework("munit.Framework"),
+  assembly / assemblyJarName := s"${name.value}-${version.value}.sh.bat",
+  assembly / assemblyOption := (assembly / assemblyOption).value
+    .withPrependShellScript(Some(AssemblyPlugin.defaultUniversalScript(shebang = false))),
+  assembly / assemblyMergeStrategy := {
+    case PathList(paths@_*) if paths.last == "module-info.class" => MergeStrategy.discard
+    case x =>
+      val oldStrategy = (assembly / assemblyMergeStrategy).value
+      oldStrategy(x)
+  }
+)
+
 lazy val root = (project in file("."))
+  .settings(commonSettings)
   .settings(
     name := "alertmanager-ruler-proxy",
     libraryDependencies ++= Seq(
