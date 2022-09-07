@@ -36,7 +36,7 @@ object Main extends IOApp {
       rulesConfig <- Resource.eval(RulesConfigFile[IO](config.rulePath))
       _ <- EmberServerBuilder.default[IO]
         .withHost(host"0.0.0.0")
-        .withPort(port"8080")
+        .withPort(config.httpPortOrDefault)
         .withHttpApp(Routes(
           client = client,
           alertmanagerUrl = config.alertmanagerUrl,
