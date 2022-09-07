@@ -17,9 +17,10 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
 
   private val readRuleGroups: F[Seq[RuleGroup]] = Sync[F].blocking {
     if (Files.exists(filePath)) {
-      io.circe.yaml.parser.parse(Files.readString(filePath))
+      val ruleGroupsString = Files.readString(filePath)
+      io.circe.yaml.parser.parse(ruleGroupsString)
         .toTry.get
-        .asArray
+        .hcursor.downField("groups").focus.flatMap(_.asArray)
         .getOrElse(Seq.empty)
         .map(RuleGroup)
     } else
@@ -27,8 +28,8 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
   }
 
   private def writeRuleGroups(ruleGroups: Seq[RuleGroup]): F[Unit] = Sync[F].blocking {
-    val ruleGroupsJson = Json.fromValues(ruleGroups.map(_.json))
-    Files.writeString(filePath, ruleGroupsJson.asYaml.spaces2, StandardCharsets.UTF_8)
+    val ruleGroupsString = Json.obj("groups" -> Json.fromValues(ruleGroups.map(_.json))).asYaml.spaces2
+    Files.writeString(filePath, ruleGroupsString, StandardCharsets.UTF_8)
   }
 
   override def listRuleGroups: F[Map[String, Seq[RuleGroup]]] = semaphore.permit.use { _ =>
