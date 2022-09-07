@@ -67,8 +67,6 @@ object Routes {
         rulesConfig.deleteNamespace(namespace).flatMap(_ => Accepted())
 
       case request =>
-        logger.debug(request.pathInfo.renderString)
-
         httpApp(
           request
             .withHttpVersion(HttpVersion.`HTTP/1.1`)
@@ -80,7 +78,10 @@ object Routes {
                   else alertmanagerUrl.path.concat(request.pathInfo)
                   ).toAbsolute)
             )
-        )
+        ).map { response =>
+          logger.debug(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
+          response
+        }
     }
   }
 }
