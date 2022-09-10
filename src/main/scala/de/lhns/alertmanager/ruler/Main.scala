@@ -6,11 +6,14 @@ import com.github.markusbernhardt.proxy.ProxySearch
 import de.lolhens.trustmanager.TrustManagers._
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.jdkhttpclient.JdkHttpClient
-
+import org.log4s.getLogger
+import io.circe.syntax._
 import java.net.ProxySelector
 import scala.util.chaining._
 
 object Main extends IOApp {
+  private val logger = getLogger
+
   override def run(args: List[String]): IO[ExitCode] = {
     ProxySelector.setDefault(
       Option(new ProxySearch().tap { s =>
@@ -26,6 +29,8 @@ object Main extends IOApp {
       Option(System.getenv("CONFIG"))
         .map(io.circe.config.parser.decode[Config](_).toTry.get)
         .getOrElse(throw new IllegalArgumentException("Missing variable: CONFIG"))
+
+    logger.info(config.asJson.spaces2)
 
     applicationResource(config).use(_ => IO.never).as(ExitCode.Success)
   }

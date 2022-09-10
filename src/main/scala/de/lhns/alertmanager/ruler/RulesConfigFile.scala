@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 
 class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) extends AbstractRulesConfig[F] {
-  private val globalNamespace = "global"
+  private val globalNamespace = "default"
 
   private val readRuleGroups: F[Seq[RuleGroup]] = Sync[F].blocking {
     if (Files.exists(filePath)) {
