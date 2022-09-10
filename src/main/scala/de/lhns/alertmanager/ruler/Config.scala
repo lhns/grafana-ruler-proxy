@@ -9,7 +9,8 @@ import java.nio.file.{Path, Paths}
 
 case class Config(
                    httpPort: Option[Port],
-                   alertmanagerUrl: Uri,
+                   prometheusUrl: Option[Uri],
+                   alertmanagerUrl: Option[Uri],
                    rulePath: Path
                  ) {
   val httpPortOrDefault: Port = httpPort.getOrElse(port"8080")

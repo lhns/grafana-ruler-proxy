@@ -4,7 +4,7 @@
 
 ```json
 {
-  "alertmanagerUrl": "http://prometheus",
+  "prometheusUrl": "http://prometheus",
   "rulePath": "rules.yml"
 }
 ```

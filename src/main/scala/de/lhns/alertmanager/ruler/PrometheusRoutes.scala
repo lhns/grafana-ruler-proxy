@@ -17,7 +17,7 @@ import org.http4s.circe._
 
 import java.nio.charset.StandardCharsets
 
-object Routes {
+object PrometheusRoutes {
   private val logger = getLogger
 
   private implicit def yamlDecoder[F[_] : Concurrent]: EntityDecoder[F, YamlSyntax] =
@@ -34,7 +34,7 @@ object Routes {
 
   def apply(
              client: Client[IO],
-             alertmanagerUrl: Uri,
+             prometheusUrl: Uri,
              rulesConfig: RulesConfig[IO]
            ): HttpRoutes[IO] = {
     val httpApp = client.toHttpApp
@@ -44,10 +44,10 @@ object Routes {
         .withHttpVersion(HttpVersion.`HTTP/1.1`)
         .withDestination(
           request.uri
-            .withSchemeAndAuthority(alertmanagerUrl)
+            .withSchemeAndAuthority(prometheusUrl)
             .withPath((
-              if (request.pathInfo.isEmpty) alertmanagerUrl.path
-              else alertmanagerUrl.path.concat(request.pathInfo)
+              if (request.pathInfo.isEmpty) prometheusUrl.path
+              else prometheusUrl.path.concat(request.pathInfo)
               ).toAbsolute)
         )
     )

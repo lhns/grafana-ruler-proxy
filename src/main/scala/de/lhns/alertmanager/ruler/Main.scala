@@ -1,5 +1,6 @@
 package de.lhns.alertmanager.ruler
 
+import cats.MonoidK
 import cats.effect.{ExitCode, IO, IOApp, Resource}
 import com.comcast.ip4s._
 import com.github.markusbernhardt.proxy.ProxySearch
@@ -8,6 +9,10 @@ import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.jdkhttpclient.JdkHttpClient
 import org.log4s.getLogger
 import io.circe.syntax._
+import org.http4s.HttpRoutes
+import cats.syntax.semigroupk._
+import org.http4s.server.Router
+
 import java.net.ProxySelector
 import scala.util.chaining._
 
@@ -39,14 +44,19 @@ object Main extends IOApp {
     for {
       client <- JdkHttpClient.simple[IO]
       rulesConfig <- Resource.eval(RulesConfigFile[IO](config.rulePath))
+      routes = Router[IO](
+        "/prometheus" -> config.prometheusUrl.map { prometheusUrl =>
+          PrometheusRoutes(
+            client = client,
+            prometheusUrl = prometheusUrl,
+            rulesConfig = rulesConfig
+          )
+        }.getOrElse(HttpRoutes.empty)
+      )
       _ <- EmberServerBuilder.default[IO]
         .withHost(host"0.0.0.0")
         .withPort(config.httpPortOrDefault)
-        .withHttpApp(Routes(
-          client = client,
-          alertmanagerUrl = config.alertmanagerUrl,
-          rulesConfig = rulesConfig
-        ).orNotFound)
+        .withHttpApp(routes.orNotFound)
         .build
     } yield ()
   }
