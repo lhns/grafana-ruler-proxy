@@ -4,17 +4,14 @@ import cats.data.OptionT
 import cats.effect.IO
 import de.lhns.alertmanager.ruler.model.RuleGroup
 import de.lhns.alertmanager.ruler.repo.RulesConfigRepo
-import de.lolhens.http4s.proxy.Http4sProxy._
-import fs2.Chunk
 import io.circe.Json
 import io.circe.yaml.syntax._
 import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
-import org.http4s.{HttpRoutes, HttpVersion, Method, Request, Response, Status, Uri}
+import org.http4s.{HttpRoutes, Method, Request, Response, Status, Uri}
 import org.log4s.getLogger
 
-import java.nio.charset.StandardCharsets
 import scala.concurrent.duration._
 
 class PrometheusRoutes private(
@@ -27,28 +24,14 @@ class PrometheusRoutes private(
 
   private val httpApp = client.toHttpApp
 
-  private def warnSlowResponse[A](io: IO[A]): IO[A] =
-    for {
-      fiber <- IO {
-        logger.warn(s"request to $prometheusUrl is taking longer than expected")
-      }.delayBy(10.seconds).start
-      result <- io
-      _ <- fiber.cancel
-    } yield result
-
-  private def proxyRequest(request: Request[IO]): IO[Response[IO]] =
-    warnSlowResponse(httpApp(
-      request
-        .withHttpVersion(HttpVersion.`HTTP/1.1`)
-        .withDestination(
-          request.uri
-            .withSchemeAndAuthority(prometheusUrl)
-            .withPath((
-              if (request.pathInfo.isEmpty) prometheusUrl.path
-              else prometheusUrl.path.concat(request.pathInfo)
-              ).toAbsolute)
-        )
-    ))
+  private def proxyRequest(request: Request[IO]): IO[Response[IO]] = {
+    val newRequest = changeDestination(request, prometheusUrl)
+    warnSlowResponse(
+      httpApp(newRequest),
+      logger,
+      newRequest.uri
+    )
+  }
 
   def reloadRules: IO[Unit] =
     proxyRequest(Request[IO](
@@ -124,7 +107,7 @@ class PrometheusRoutes private(
 
     case request =>
       proxyRequest(request).map { response =>
-        logger.info(s"${request.method} ${request.uri.path} -> ${response.status.code}")
+        logger.debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
         response
       }
   }

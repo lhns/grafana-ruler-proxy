@@ -5,7 +5,8 @@
         </encoder>
     </appender>
 
-    <logger name="de.lhns.alertmanager.ruler.PrometheusRoutes" level="DEBUG"/>
+    <logger name="de.lhns.alertmanager.ruler.PrometheusRoutes" level="INFO"/>
+    <logger name="de.lhns.alertmanager.ruler.route.AlertmanagerRoutes" level="INFO"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
