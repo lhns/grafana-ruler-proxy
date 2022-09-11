@@ -6,6 +6,7 @@ val V = new {
   val catsEffect = "3.3.14"
   val circe = "0.14.2"
   val circeConfig = "0.8.0"
+  val circeOptics = "0.14.1"
   val circeYaml = "0.14.1"
   val http4s = "0.23.15"
   val http4sJdkHttpClient = "0.7.0"
@@ -53,6 +54,7 @@ lazy val root = (project in file("."))
       "io.circe" %% "circe-config" % V.circeConfig,
       "io.circe" %% "circe-core" % V.circe,
       "io.circe" %% "circe-generic" % V.circe,
+      "io.circe" %% "circe-optics" % V.circeOptics,
       "io.circe" %% "circe-parser" % V.circe,
       "io.circe" %% "circe-yaml" % V.circeYaml,
     )

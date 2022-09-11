@@ -12,9 +12,11 @@ import io.circe.yaml.syntax._
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 
-class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) extends AbstractRulesConfig[F] {
-  private val globalNamespace = "default"
-
+class RulesConfigFile[F[_] : Sync](
+                                    semaphore: Semaphore[F],
+                                    filePath: Path,
+                                    namespace: String
+                                  ) extends AbstractRulesConfig[F] {
   private val readRuleGroups: F[Seq[RuleGroup]] = Sync[F].blocking {
     if (Files.exists(filePath)) {
       val ruleGroupsString = Files.readString(filePath)
@@ -36,7 +38,7 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
     for {
       ruleGroups <- readRuleGroups
     } yield
-      Map(globalNamespace -> ruleGroups)
+      Map(this.namespace -> ruleGroups)
   }
 
   def getRuleGroupsByNamespace(namespace: String): F[Seq[RuleGroup]] =
@@ -46,7 +48,7 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
     getRuleGroupsByNamespace(namespace).map(_.find(_.name.contains(groupName)))
 
   override def setRuleGroup(namespace: String, ruleGroup: RuleGroup): F[Unit] =
-    if (namespace == globalNamespace) {
+    if (namespace == this.namespace) {
       semaphore.permit.use { _ =>
         for {
           ruleGroups <- readRuleGroups
@@ -58,7 +60,7 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
       Monad[F].unit
 
   override def deleteRuleGroup(namespace: String, groupName: String): F[Unit] =
-    if (namespace == globalNamespace) {
+    if (namespace == this.namespace) {
       semaphore.permit.use { _ =>
         for {
           ruleGroups <- readRuleGroups
@@ -70,7 +72,7 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
       Monad[F].unit
 
   override def deleteNamespace(namespace: String): F[Unit] =
-    if (namespace == globalNamespace) {
+    if (namespace == this.namespace) {
       semaphore.permit.use { _ =>
         writeRuleGroups(Seq.empty)
       }
@@ -79,6 +81,9 @@ class RulesConfigFile[F[_] : Sync](semaphore: Semaphore[F], filePath: Path) exte
 }
 
 object RulesConfigFile {
-  def apply[F[_] : Async](filePath: Path): F[RulesConfigFile[F]] =
-    Semaphore[F](1).map(new RulesConfigFile[F](_, filePath))
+  def apply[F[_] : Async](
+                           filePath: Path,
+                           namespace: String
+                         ): F[RulesConfigFile[F]] =
+    Semaphore[F](1).map(new RulesConfigFile[F](_, filePath, namespace))
 }

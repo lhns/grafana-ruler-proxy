@@ -11,9 +11,11 @@ import io.circe.yaml.syntax._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
 import org.http4s.headers.`Content-Type`
-import org.http4s.{DecodeFailure, EntityDecoder, EntityEncoder, HttpRoutes, HttpVersion, MalformedMessageBodyFailure, MediaType, Request, Response, Status, Uri}
+import org.http4s.{DecodeFailure, EntityDecoder, EntityEncoder, HttpRoutes, HttpVersion, MalformedMessageBodyFailure, MediaType, Method, Request, Response, Status, Uri}
 import org.log4s.getLogger
 import org.http4s.circe._
+import io.circe.optics.JsonPath._
+import org.http4s.client.middleware.GZip
 
 import java.nio.charset.StandardCharsets
 
@@ -35,11 +37,13 @@ object PrometheusRoutes {
   def apply(
              client: Client[IO],
              prometheusUrl: Uri,
-             rulesConfig: RulesConfig[IO]
+             alertmanagerUrl: Option[Uri],
+             rulesConfig: RulesConfig[IO],
+             namespace: String
            ): HttpRoutes[IO] = {
-    val httpApp = client.toHttpApp
+    val httpApp = GZip()(client).toHttpApp
 
-    def alertmanager(request: Request[IO]): IO[Response[IO]] = httpApp(
+    def proxyRequest(request: Request[IO]): IO[Response[IO]] = httpApp(
       request
         .withHttpVersion(HttpVersion.`HTTP/1.1`)
         .withDestination(
@@ -52,21 +56,25 @@ object PrometheusRoutes {
         )
     )
 
+    def reloadRules: IO[Unit] =
+      proxyRequest(Request[IO](
+        method = Method.POST,
+        uri = prometheusUrl / "-" / "reload"
+      )).start.void
+
     HttpRoutes.of {
       case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
-        alertmanager(request).flatMap { response =>
+        proxyRequest(request).flatMap { response =>
           OptionT.whenF(response.status.isSuccess) {
             response.as[Json]
-          }.getOrElse(
-            Json.obj(
-              "status" -> Json.fromString("success")
-            )
-          ).map { buildinfo =>
+          }.getOrElse(Json.obj(
+            "status" -> Json.fromString("success")
+          )).map { buildinfo =>
             val newBuildinfo = buildinfo.deepMerge(Json.obj(
               "data" -> Json.obj(
                 "features" -> Json.obj(
                   "ruler_config_api" -> Json.fromString("true"),
-                  "alertmanager_config_api" -> Json.fromString("true")
+                  "alertmanager_config_api" -> Json.fromString(alertmanagerUrl.isDefined.toString)
                 )
               )
             ))
@@ -77,8 +85,7 @@ object PrometheusRoutes {
           }
         }
 
-      case request@GET -> Root / "config" / "v1" / "rules" =>
-        logger.debug(s"${request.method} ${request.pathInfo}")
+      case GET -> Root / "config" / "v1" / "rules" =>
         rulesConfig.listRuleGroups
           .map(namespaces => Json.fromFields(namespaces.map {
             case (namespace, groups) => namespace -> Json.fromValues(groups.map(_.json))
@@ -86,15 +93,13 @@ object PrometheusRoutes {
           .map(_.asYaml)
           .flatMap(Ok(_))
 
-      case request@GET -> Root / "config" / "v1" / "rules" / namespace =>
-        logger.debug(s"${request.method} ${request.pathInfo}")
+      case GET -> Root / "config" / "v1" / "rules" / namespace =>
         rulesConfig.getRuleGroupsByNamespace(namespace)
           .map(groups => Json.fromValues(groups.map(_.json)))
           .map(_.asYaml)
           .flatMap(Ok(_))
 
-      case request@GET -> Root / "config" / "v1" / "rules" / namespace / groupName =>
-        logger.debug(s"${request.method} ${request.pathInfo}")
+      case GET -> Root / "config" / "v1" / "rules" / namespace / groupName =>
         OptionT(rulesConfig.getRuleGroup(namespace, groupName))
           .map(_.json)
           .getOrElse(Json.obj(
@@ -105,35 +110,39 @@ object PrometheusRoutes {
           .flatMap(Ok(_))
 
       case request@POST -> Root / "config" / "v1" / "rules" / namespace =>
-        logger.debug(s"${request.method} ${request.pathInfo}")
         request.as[YamlSyntax].flatMap { rule =>
-          rulesConfig.setRuleGroup(namespace, RuleGroup(rule.tree)).flatMap(_ => Accepted(Json.obj()))
+          rulesConfig.setRuleGroup(namespace, RuleGroup(rule.tree)) >>
+            reloadRules >>
+            Accepted(Json.obj())
         }
 
-      case request@DELETE -> Root / "config" / "v1" / "rules" / namespace / groupName =>
-        logger.debug(s"${request.method} ${request.pathInfo}")
-        rulesConfig.deleteRuleGroup(namespace, groupName).flatMap(_ => Accepted(Json.obj()))
+      case DELETE -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+        rulesConfig.deleteRuleGroup(namespace, groupName) >>
+          reloadRules >>
+          Accepted(Json.obj())
 
-      case request@DELETE -> Root / "config" / "v1" / "rules" / namespace =>
-        logger.debug(s"${request.method} ${request.pathInfo}")
-        rulesConfig.deleteNamespace(namespace).flatMap(_ => Accepted(Json.obj()))
+      case DELETE -> Root / "config" / "v1" / "rules" / namespace =>
+        rulesConfig.deleteNamespace(namespace) >>
+          reloadRules >>
+          Accepted(Json.obj())
 
-      /*case GET -> Root / "api" / "v2" / "status" =>
-        NotFound()
-
-      case request@_ -> "alertmanager" /: path =>
-        alertmanager(request.withPathInfo(path)).map { response =>
-          logger.debug(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
-          response
-        }*/
+      case request@GET -> Root / "api" / "v1" / "rules" =>
+        proxyRequest(request).flatMap { response =>
+          OptionT.whenF(response.status.isSuccess) {
+            response.as[Json].map { rules =>
+              val newRules = root.data.groups.each.file.string.set(namespace).apply(rules)
+              response.withEntity(newRules)
+            }
+          }.getOrElse(response)
+        }
 
       case request =>
-        alertmanager(request).flatMap { response =>
+        proxyRequest(request).map { response =>
           logger.debug(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
-          response.as[Chunk[Byte]].map { chunk =>
+          response/*.as[Chunk[Byte]].map { chunk =>
             println(new String(chunk.toArray, StandardCharsets.UTF_8))
             response.withBodyStream(fs2.Stream.chunk(chunk))
-          }
+          }*/
         }
     }
   }

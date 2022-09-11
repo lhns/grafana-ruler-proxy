@@ -41,15 +41,21 @@ object Main extends IOApp {
   }
 
   def applicationResource(config: Config): Resource[IO, Unit] = {
+    val namespace = "default"
     for {
       client <- JdkHttpClient.simple[IO]
-      rulesConfig <- Resource.eval(RulesConfigFile[IO](config.rulePath))
+      rulesConfig <- Resource.eval(RulesConfigFile[IO](
+        filePath = config.rulePath,
+        namespace = namespace
+      ))
       routes = Router[IO](
         "/prometheus" -> config.prometheusUrl.map { prometheusUrl =>
           PrometheusRoutes(
             client = client,
             prometheusUrl = prometheusUrl,
-            rulesConfig = rulesConfig
+            alertmanagerUrl = config.alertmanagerUrl,
+            rulesConfig = rulesConfig,
+            namespace = namespace
           )
         }.getOrElse(HttpRoutes.empty)
       )
