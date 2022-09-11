@@ -11,7 +11,8 @@ case class Config(
                    httpPort: Option[Port],
                    prometheusUrl: Option[Uri],
                    alertmanagerUrl: Option[Uri],
-                   rulePath: Path
+                   rulePath: Path,
+                   internalRulePath: String
                  ) {
   val httpPortOrDefault: Port = httpPort.getOrElse(port"8080")
 }

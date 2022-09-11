@@ -1,17 +1,17 @@
 package de.lhns.alertmanager.ruler
 
-import cats.MonoidK
+import cats.data.OptionT
 import cats.effect.{ExitCode, IO, IOApp, Resource}
 import com.comcast.ip4s._
 import com.github.markusbernhardt.proxy.ProxySearch
+import de.lhns.alertmanager.ruler.route.{AlertmanagerRoutes, PrometheusRoutes}
 import de.lolhens.trustmanager.TrustManagers._
-import org.http4s.ember.server.EmberServerBuilder
-import org.http4s.jdkhttpclient.JdkHttpClient
-import org.log4s.getLogger
 import io.circe.syntax._
 import org.http4s.HttpRoutes
-import cats.syntax.semigroupk._
+import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.jdkhttpclient.JdkHttpClient
 import org.http4s.server.Router
+import org.log4s.getLogger
 
 import java.net.ProxySelector
 import scala.util.chaining._
@@ -40,24 +40,38 @@ object Main extends IOApp {
     applicationResource(config).use(_ => IO.never).as(ExitCode.Success)
   }
 
-  def applicationResource(config: Config): Resource[IO, Unit] = {
-    val namespace = "default"
+  def applicationResource(config: Config): Resource[IO, Unit] =
     for {
       client <- JdkHttpClient.simple[IO]
-      rulesConfig <- Resource.eval(RulesConfigFile[IO](
-        filePath = config.rulePath,
-        namespace = namespace
-      ))
-      routes = Router[IO](
-        "/prometheus" -> config.prometheusUrl.map { prometheusUrl =>
-          PrometheusRoutes(
+      rulesConfig <- Resource.eval {
+        RulesConfigFile[IO](
+          filePath = config.rulePath,
+          namespace = config.internalRulePath
+        )
+      }
+      prometheusRoutes <- Resource.eval {
+        OptionT.fromOption[IO](config.prometheusUrl)
+          .semiflatMap { prometheusUrl =>
+            PrometheusRoutes(
+              client = client,
+              prometheusUrl = prometheusUrl,
+              alertmanagerConfigApiEnabled = config.alertmanagerUrl.isDefined,
+              rulesConfig = rulesConfig
+            )
+          }
+          .getOrElse(HttpRoutes.empty[IO])
+      }
+      alertmanagerRoutes = config.alertmanagerUrl
+        .map { alertmanagerUrl =>
+          AlertmanagerRoutes(
             client = client,
-            prometheusUrl = prometheusUrl,
-            alertmanagerUrl = config.alertmanagerUrl,
-            rulesConfig = rulesConfig,
-            namespace = namespace
+            alertmanagerUrl = alertmanagerUrl
           )
-        }.getOrElse(HttpRoutes.empty)
+        }
+        .getOrElse(HttpRoutes.empty[IO])
+      routes = Router[IO](
+        "/prometheus" -> prometheusRoutes,
+        "/alertmanager" -> alertmanagerRoutes
       )
       _ <- EmberServerBuilder.default[IO]
         .withHost(host"0.0.0.0")
@@ -65,5 +79,4 @@ object Main extends IOApp {
         .withHttpApp(routes.orNotFound)
         .build
     } yield ()
-  }
 }

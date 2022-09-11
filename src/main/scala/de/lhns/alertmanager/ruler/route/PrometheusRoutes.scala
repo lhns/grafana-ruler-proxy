@@ -1,23 +1,23 @@
-package de.lhns.alertmanager.ruler
+package de.lhns.alertmanager.ruler.route
 
 import cats.data.{EitherT, OptionT}
 import cats.effect.{Concurrent, IO}
 import cats.syntax.functor._
+import de.lhns.alertmanager.ruler.RulesConfig
 import de.lhns.alertmanager.ruler.RulesConfig.RuleGroup
 import de.lolhens.http4s.proxy.Http4sProxy._
 import fs2.Chunk
 import io.circe.Json
-import io.circe.yaml.syntax._
+import io.circe.yaml.syntax.{YamlSyntax, _}
+import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
 import org.http4s.headers.`Content-Type`
 import org.http4s.{DecodeFailure, EntityDecoder, EntityEncoder, HttpRoutes, HttpVersion, MalformedMessageBodyFailure, MediaType, Method, Request, Response, Status, Uri}
 import org.log4s.getLogger
-import org.http4s.circe._
-import io.circe.optics.JsonPath._
-import org.http4s.client.middleware.GZip
 
 import java.nio.charset.StandardCharsets
+import scala.concurrent.duration._
 
 object PrometheusRoutes {
   private val logger = getLogger
@@ -37,24 +37,33 @@ object PrometheusRoutes {
   def apply(
              client: Client[IO],
              prometheusUrl: Uri,
-             alertmanagerUrl: Option[Uri],
-             rulesConfig: RulesConfig[IO],
-             namespace: String
-           ): HttpRoutes[IO] = {
-    val httpApp = GZip()(client).toHttpApp
+             alertmanagerConfigApiEnabled: Boolean,
+             rulesConfig: RulesConfig[IO]
+           ): IO[HttpRoutes[IO]] = {
+    val httpApp = client.toHttpApp
 
-    def proxyRequest(request: Request[IO]): IO[Response[IO]] = httpApp(
-      request
-        .withHttpVersion(HttpVersion.`HTTP/1.1`)
-        .withDestination(
-          request.uri
-            .withSchemeAndAuthority(prometheusUrl)
-            .withPath((
-              if (request.pathInfo.isEmpty) prometheusUrl.path
-              else prometheusUrl.path.concat(request.pathInfo)
-              ).toAbsolute)
-        )
-    )
+    def warnSlowResponse[A](io: IO[A]): IO[A] =
+      for {
+        fiber <- IO {
+          logger.warn(s"request to $prometheusUrl is taking longer than expected")
+        }.delayBy(10.seconds).start
+        result <- io
+        _ <- fiber.cancel
+      } yield result
+
+    def proxyRequest(request: Request[IO]): IO[Response[IO]] =
+      warnSlowResponse(httpApp(
+        request
+          .withHttpVersion(HttpVersion.`HTTP/1.1`)
+          .withDestination(
+            request.uri
+              .withSchemeAndAuthority(prometheusUrl)
+              .withPath((
+                if (request.pathInfo.isEmpty) prometheusUrl.path
+                else prometheusUrl.path.concat(request.pathInfo)
+                ).toAbsolute)
+          )
+      ))
 
     def reloadRules: IO[Unit] =
       proxyRequest(Request[IO](
@@ -62,27 +71,29 @@ object PrometheusRoutes {
         uri = prometheusUrl / "-" / "reload"
       )).start.void
 
-    HttpRoutes.of {
+    val routes = HttpRoutes.of[IO] {
       case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
         proxyRequest(request).flatMap { response =>
           OptionT.whenF(response.status.isSuccess) {
             response.as[Json]
-          }.getOrElse(Json.obj(
-            "status" -> Json.fromString("success")
-          )).map { buildinfo =>
-            val newBuildinfo = buildinfo.deepMerge(Json.obj(
-              "data" -> Json.obj(
-                "features" -> Json.obj(
-                  "ruler_config_api" -> Json.fromString("true"),
-                  "alertmanager_config_api" -> Json.fromString(alertmanagerUrl.isDefined.toString)
-                )
-              )
-            ))
-
-            response
-              .withStatus(Status.Ok)
-              .withEntity(newBuildinfo)
           }
+            .getOrElse(Json.obj(
+              "status" -> Json.fromString("success")
+            ))
+            .map { buildinfo =>
+              val newBuildinfo = buildinfo.deepMerge(Json.obj(
+                "data" -> Json.obj(
+                  "features" -> Json.obj(
+                    "ruler_config_api" -> Json.fromString("true"),
+                    "alertmanager_config_api" -> Json.fromString(alertmanagerConfigApiEnabled.toString)
+                  )
+                )
+              ))
+
+              response
+                .withStatus(Status.Ok)
+                .withEntity(newBuildinfo)
+            }
         }
 
       case GET -> Root / "config" / "v1" / "rules" =>
@@ -126,24 +137,24 @@ object PrometheusRoutes {
           reloadRules >>
           Accepted(Json.obj())
 
-      case request@GET -> Root / "api" / "v1" / "rules" =>
-        proxyRequest(request).flatMap { response =>
-          OptionT.whenF(response.status.isSuccess) {
-            response.as[Json].map { rules =>
-              val newRules = root.data.groups.each.file.string.set(namespace).apply(rules)
-              response.withEntity(newRules)
-            }
-          }.getOrElse(response)
-        }
-
       case request =>
-        proxyRequest(request).map { response =>
-          logger.debug(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
-          response/*.as[Chunk[Byte]].map { chunk =>
-            println(new String(chunk.toArray, StandardCharsets.UTF_8))
-            response.withBodyStream(fs2.Stream.chunk(chunk))
-          }*/
-        }
+        proxyRequest(request)
+          .flatMap { response =>
+            logger.info(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
+            if (logger.isDebugEnabled) {
+              response.as[Chunk[Byte]].map { chunk =>
+                logger.debug(new String(chunk.toArray, StandardCharsets.UTF_8))
+                response.withBodyStream(fs2.Stream.chunk(chunk))
+              }
+            } else IO {
+              response
+            }
+          }
     }
+
+    def reloadSchedule: IO[Unit] =
+      (reloadRules >> reloadSchedule).delayBy(5.minutes)
+
+    reloadSchedule.start.as(routes)
   }
 }
