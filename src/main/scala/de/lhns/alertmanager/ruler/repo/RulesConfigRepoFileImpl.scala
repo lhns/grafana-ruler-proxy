@@ -1,22 +1,22 @@
-package de.lhns.alertmanager.ruler
+package de.lhns.alertmanager.ruler.repo
 
 import cats.Monad
 import cats.effect.std.Semaphore
 import cats.effect.{Async, Sync}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import de.lhns.alertmanager.ruler.RulesConfig.{AbstractRulesConfig, RuleGroup}
+import de.lhns.alertmanager.ruler.model.RuleGroup
 import io.circe.Json
 import io.circe.yaml.syntax._
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 
-class RulesConfigFile[F[_] : Sync](
-                                    semaphore: Semaphore[F],
-                                    filePath: Path,
-                                    namespace: String
-                                  ) extends AbstractRulesConfig[F] {
+class RulesConfigRepoFileImpl[F[_] : Sync] private(
+                                                    semaphore: Semaphore[F],
+                                                    filePath: Path,
+                                                    namespace: String
+                                                  ) extends RulesConfigRepo[F] {
   private val readRuleGroups: F[Seq[RuleGroup]] = Sync[F].blocking {
     if (Files.exists(filePath)) {
       val ruleGroupsString = Files.readString(filePath)
@@ -80,10 +80,10 @@ class RulesConfigFile[F[_] : Sync](
       Monad[F].unit
 }
 
-object RulesConfigFile {
+object RulesConfigRepoFileImpl {
   def apply[F[_] : Async](
                            filePath: Path,
                            namespace: String
-                         ): F[RulesConfigFile[F]] =
-    Semaphore[F](1).map(new RulesConfigFile[F](_, filePath, namespace))
+                         ): F[RulesConfigRepoFileImpl[F]] =
+    Semaphore[F](1).map(new RulesConfigRepoFileImpl[F](_, filePath, namespace))
 }

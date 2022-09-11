@@ -1,159 +1,151 @@
 package de.lhns.alertmanager.ruler.route
 
-import cats.data.{EitherT, OptionT}
-import cats.effect.{Concurrent, IO}
-import cats.syntax.functor._
-import de.lhns.alertmanager.ruler.RulesConfig
-import de.lhns.alertmanager.ruler.RulesConfig.RuleGroup
+import cats.data.OptionT
+import cats.effect.IO
+import de.lhns.alertmanager.ruler.model.RuleGroup
+import de.lhns.alertmanager.ruler.repo.RulesConfigRepo
 import de.lolhens.http4s.proxy.Http4sProxy._
 import fs2.Chunk
 import io.circe.Json
-import io.circe.yaml.syntax.{YamlSyntax, _}
+import io.circe.yaml.syntax._
 import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
-import org.http4s.headers.`Content-Type`
-import org.http4s.{DecodeFailure, EntityDecoder, EntityEncoder, HttpRoutes, HttpVersion, MalformedMessageBodyFailure, MediaType, Method, Request, Response, Status, Uri}
+import org.http4s.{HttpRoutes, HttpVersion, Method, Request, Response, Status, Uri}
 import org.log4s.getLogger
 
 import java.nio.charset.StandardCharsets
 import scala.concurrent.duration._
 
-object PrometheusRoutes {
+class PrometheusRoutes private(
+                                client: Client[IO],
+                                prometheusUrl: Uri,
+                                alertmanagerConfigApiEnabled: Boolean,
+                                rulesConfigRepo: RulesConfigRepo[IO]
+                              ) {
   private val logger = getLogger
 
-  private implicit def yamlDecoder[F[_] : Concurrent]: EntityDecoder[F, YamlSyntax] =
-    EntityDecoder.decodeBy[F, YamlSyntax](MediaType.text.yaml) { media =>
-      EitherT(media.as[String].map(io.circe.yaml.parser.parse))
-        .leftMap[DecodeFailure](failure => MalformedMessageBodyFailure("Invalid YAML", Some(failure)))
+  private val httpApp = client.toHttpApp
+
+  private def warnSlowResponse[A](io: IO[A]): IO[A] =
+    for {
+      fiber <- IO {
+        logger.warn(s"request to $prometheusUrl is taking longer than expected")
+      }.delayBy(10.seconds).start
+      result <- io
+      _ <- fiber.cancel
+    } yield result
+
+  private def proxyRequest(request: Request[IO]): IO[Response[IO]] =
+    warnSlowResponse(httpApp(
+      request
+        .withHttpVersion(HttpVersion.`HTTP/1.1`)
+        .withDestination(
+          request.uri
+            .withSchemeAndAuthority(prometheusUrl)
+            .withPath((
+              if (request.pathInfo.isEmpty) prometheusUrl.path
+              else prometheusUrl.path.concat(request.pathInfo)
+              ).toAbsolute)
+        )
+    ))
+
+  def reloadRules: IO[Unit] =
+    proxyRequest(Request[IO](
+      method = Method.POST,
+      uri = prometheusUrl / "-" / "reload"
+    )).start.void
+
+  def toRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
+    case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
+      proxyRequest(request).flatMap { response =>
+        OptionT.whenF(response.status.isSuccess) {
+          response.as[Json]
+        }
+          .getOrElse(Json.obj(
+            "status" -> Json.fromString("success")
+          ))
+          .map { buildinfo =>
+            val newBuildinfo = buildinfo.deepMerge(Json.obj(
+              "data" -> Json.obj(
+                "features" -> Json.obj(
+                  "ruler_config_api" -> Json.fromString("true"),
+                  "alertmanager_config_api" -> Json.fromString(alertmanagerConfigApiEnabled.toString)
+                )
+              )
+            ))
+
+            response
+              .withStatus(Status.Ok)
+              .withEntity(newBuildinfo)
+          }
+      }
+
+    case GET -> Root / "config" / "v1" / "rules" =>
+      rulesConfigRepo.listRuleGroups
+        .map(namespaces => Json.fromFields(namespaces.map {
+          case (namespace, groups) => namespace -> Json.fromValues(groups.map(_.json))
+        }))
         .map(_.asYaml)
-    }
+        .flatMap(Ok(_))
 
-  private implicit def yamlEncoder[F[_] : Concurrent]: EntityEncoder[F, YamlSyntax] =
-    EntityEncoder.stringEncoder[F]
-      .withContentType(`Content-Type`(MediaType.text.yaml))
-      .contramap(_.spaces2)
+    case GET -> Root / "config" / "v1" / "rules" / namespace =>
+      rulesConfigRepo.getRuleGroupsByNamespace(namespace)
+        .map(groups => Json.fromValues(groups.map(_.json)))
+        .map(_.asYaml)
+        .flatMap(Ok(_))
 
+    case GET -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+      OptionT(rulesConfigRepo.getRuleGroup(namespace, groupName))
+        .map(_.json)
+        .getOrElse(Json.obj(
+          "name" -> Json.fromString(groupName),
+          "rules" -> Json.arr()
+        ))
+        .map(_.asYaml)
+        .flatMap(Ok(_))
+
+    case request@POST -> Root / "config" / "v1" / "rules" / namespace =>
+      request.as[YamlSyntax].flatMap { rule =>
+        rulesConfigRepo.setRuleGroup(namespace, RuleGroup(rule.tree)) >>
+          reloadRules >>
+          Accepted(Json.obj())
+      }
+
+    case DELETE -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+      rulesConfigRepo.deleteRuleGroup(namespace, groupName) >>
+        reloadRules >>
+        Accepted(Json.obj())
+
+    case DELETE -> Root / "config" / "v1" / "rules" / namespace =>
+      rulesConfigRepo.deleteNamespace(namespace) >>
+        reloadRules >>
+        Accepted(Json.obj())
+
+    case request =>
+      proxyRequest(request).map { response =>
+        logger.info(s"${request.method} ${request.uri.path} -> ${response.status.code}")
+        response
+      }
+  }
+}
+
+object PrometheusRoutes {
   def apply(
              client: Client[IO],
              prometheusUrl: Uri,
              alertmanagerConfigApiEnabled: Boolean,
-             rulesConfig: RulesConfig[IO]
-           ): IO[HttpRoutes[IO]] = {
-    val httpApp = client.toHttpApp
-
-    def warnSlowResponse[A](io: IO[A]): IO[A] =
-      for {
-        fiber <- IO {
-          logger.warn(s"request to $prometheusUrl is taking longer than expected")
-        }.delayBy(10.seconds).start
-        result <- io
-        _ <- fiber.cancel
-      } yield result
-
-    def proxyRequest(request: Request[IO]): IO[Response[IO]] =
-      warnSlowResponse(httpApp(
-        request
-          .withHttpVersion(HttpVersion.`HTTP/1.1`)
-          .withDestination(
-            request.uri
-              .withSchemeAndAuthority(prometheusUrl)
-              .withPath((
-                if (request.pathInfo.isEmpty) prometheusUrl.path
-                else prometheusUrl.path.concat(request.pathInfo)
-                ).toAbsolute)
-          )
-      ))
-
-    def reloadRules: IO[Unit] =
-      proxyRequest(Request[IO](
-        method = Method.POST,
-        uri = prometheusUrl / "-" / "reload"
-      )).start.void
-
-    val routes = HttpRoutes.of[IO] {
-      case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
-        proxyRequest(request).flatMap { response =>
-          OptionT.whenF(response.status.isSuccess) {
-            response.as[Json]
-          }
-            .getOrElse(Json.obj(
-              "status" -> Json.fromString("success")
-            ))
-            .map { buildinfo =>
-              val newBuildinfo = buildinfo.deepMerge(Json.obj(
-                "data" -> Json.obj(
-                  "features" -> Json.obj(
-                    "ruler_config_api" -> Json.fromString("true"),
-                    "alertmanager_config_api" -> Json.fromString(alertmanagerConfigApiEnabled.toString)
-                  )
-                )
-              ))
-
-              response
-                .withStatus(Status.Ok)
-                .withEntity(newBuildinfo)
-            }
-        }
-
-      case GET -> Root / "config" / "v1" / "rules" =>
-        rulesConfig.listRuleGroups
-          .map(namespaces => Json.fromFields(namespaces.map {
-            case (namespace, groups) => namespace -> Json.fromValues(groups.map(_.json))
-          }))
-          .map(_.asYaml)
-          .flatMap(Ok(_))
-
-      case GET -> Root / "config" / "v1" / "rules" / namespace =>
-        rulesConfig.getRuleGroupsByNamespace(namespace)
-          .map(groups => Json.fromValues(groups.map(_.json)))
-          .map(_.asYaml)
-          .flatMap(Ok(_))
-
-      case GET -> Root / "config" / "v1" / "rules" / namespace / groupName =>
-        OptionT(rulesConfig.getRuleGroup(namespace, groupName))
-          .map(_.json)
-          .getOrElse(Json.obj(
-            "name" -> Json.fromString(groupName),
-            "rules" -> Json.arr()
-          ))
-          .map(_.asYaml)
-          .flatMap(Ok(_))
-
-      case request@POST -> Root / "config" / "v1" / "rules" / namespace =>
-        request.as[YamlSyntax].flatMap { rule =>
-          rulesConfig.setRuleGroup(namespace, RuleGroup(rule.tree)) >>
-            reloadRules >>
-            Accepted(Json.obj())
-        }
-
-      case DELETE -> Root / "config" / "v1" / "rules" / namespace / groupName =>
-        rulesConfig.deleteRuleGroup(namespace, groupName) >>
-          reloadRules >>
-          Accepted(Json.obj())
-
-      case DELETE -> Root / "config" / "v1" / "rules" / namespace =>
-        rulesConfig.deleteNamespace(namespace) >>
-          reloadRules >>
-          Accepted(Json.obj())
-
-      case request =>
-        proxyRequest(request)
-          .flatMap { response =>
-            logger.info(s"${request.method} ${request.pathInfo} -> ${response.status.code}")
-            if (logger.isDebugEnabled) {
-              response.as[Chunk[Byte]].map { chunk =>
-                logger.debug(new String(chunk.toArray, StandardCharsets.UTF_8))
-                response.withBodyStream(fs2.Stream.chunk(chunk))
-              }
-            } else IO {
-              response
-            }
-          }
-    }
+             rulesConfigRepo: RulesConfigRepo[IO]
+           ): IO[PrometheusRoutes] = {
+    val routes = new PrometheusRoutes(
+      client = client,
+      prometheusUrl = prometheusUrl,
+      alertmanagerConfigApiEnabled = alertmanagerConfigApiEnabled,
+      rulesConfigRepo = rulesConfigRepo
+    )
 
     def reloadSchedule: IO[Unit] =
-      (reloadRules >> reloadSchedule).delayBy(5.minutes)
+      (routes.reloadRules >> reloadSchedule).delayBy(5.minutes)
 
     reloadSchedule.start.as(routes)
   }

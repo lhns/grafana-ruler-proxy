@@ -9,15 +9,32 @@ import java.nio.file.{Path, Paths}
 
 case class Config(
                    httpPort: Option[Port],
-                   prometheusUrl: Option[Uri],
-                   alertmanagerUrl: Option[Uri],
-                   rulePath: Path,
-                   internalRulePath: String
+                   prometheus: Option[Config.PrometheusConf],
+                   alertmanager: Option[Config.AlertmanagerConf]
                  ) {
   val httpPortOrDefault: Port = httpPort.getOrElse(port"8080")
 }
 
 object Config {
+  case class PrometheusConf(
+                             url: Uri,
+                             rulePath: Path,
+                             internalRulePath: String
+                           )
+
+  object PrometheusConf {
+    implicit val codec: Codec[PrometheusConf] = deriveCodec
+  }
+
+  case class AlertmanagerConf(
+                               url: Uri,
+                               configPath: Path
+                             )
+
+  object AlertmanagerConf {
+    implicit val codec: Codec[AlertmanagerConf] = deriveCodec
+  }
+
   private implicit val portCodec: Codec[Port] = Codec.from(
     Decoder.decodeInt.map(port => Port.fromInt(port).getOrElse(throw new IllegalArgumentException(s"invalid port: $port"))),
     Encoder.encodeInt.contramap(_.value)

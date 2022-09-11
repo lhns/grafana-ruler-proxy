@@ -4,6 +4,7 @@ import cats.data.OptionT
 import cats.effect.{ExitCode, IO, IOApp, Resource}
 import com.comcast.ip4s._
 import com.github.markusbernhardt.proxy.ProxySearch
+import de.lhns.alertmanager.ruler.repo.{AlertmanagerConfigRepoFileImpl, RulesConfigRepoFileImpl}
 import de.lhns.alertmanager.ruler.route.{AlertmanagerRoutes, PrometheusRoutes}
 import de.lolhens.trustmanager.TrustManagers._
 import io.circe.syntax._
@@ -43,35 +44,45 @@ object Main extends IOApp {
   def applicationResource(config: Config): Resource[IO, Unit] =
     for {
       client <- JdkHttpClient.simple[IO]
-      rulesConfig <- Resource.eval {
-        RulesConfigFile[IO](
-          filePath = config.rulePath,
-          namespace = config.internalRulePath
-        )
-      }
-      prometheusRoutes <- Resource.eval {
-        OptionT.fromOption[IO](config.prometheusUrl)
-          .semiflatMap { prometheusUrl =>
-            PrometheusRoutes(
-              client = client,
-              prometheusUrl = prometheusUrl,
-              alertmanagerConfigApiEnabled = config.alertmanagerUrl.isDefined,
-              rulesConfig = rulesConfig
+      prometheusRoutesOption <- Resource.eval {
+        (for {
+          prometheusConf <- OptionT.fromOption[IO](config.prometheus)
+          rulesConfigRepo <- OptionT.liftF {
+            RulesConfigRepoFileImpl[IO](
+              filePath = prometheusConf.rulePath,
+              namespace = prometheusConf.internalRulePath
             )
           }
-          .getOrElse(HttpRoutes.empty[IO])
+          prometheusRoutes <- OptionT.liftF {
+            PrometheusRoutes(
+              client = client,
+              prometheusUrl = prometheusConf.url,
+              alertmanagerConfigApiEnabled = config.alertmanager.isDefined,
+              rulesConfigRepo = rulesConfigRepo
+            )
+          }
+        } yield
+          prometheusRoutes)
+          .value
       }
-      alertmanagerRoutes = config.alertmanagerUrl
-        .map { alertmanagerUrl =>
-          AlertmanagerRoutes(
+      alertmanagerRoutesOption <- Resource.eval {
+        (for {
+          alertmanagerConf <- OptionT.fromOption[IO](config.alertmanager)
+          alertmanagerConfigRepo <- OptionT.liftF {
+            AlertmanagerConfigRepoFileImpl[IO](
+              filePath = alertmanagerConf.configPath
+            )
+          }
+          alertmanagerRoutes = new AlertmanagerRoutes(
             client = client,
-            alertmanagerUrl = alertmanagerUrl
+            alertmanagerUrl = alertmanagerConf.url,
+            alertmanagerConfigRepo = alertmanagerConfigRepo
           )
-        }
-        .getOrElse(HttpRoutes.empty[IO])
+        } yield alertmanagerRoutes).value
+      }
       routes = Router[IO](
-        "/prometheus" -> prometheusRoutes,
-        "/alertmanager" -> alertmanagerRoutes
+        "/prometheus" -> prometheusRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO]),
+        "/" -> alertmanagerRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
       )
       _ <- EmberServerBuilder.default[IO]
         .withHost(host"0.0.0.0")
