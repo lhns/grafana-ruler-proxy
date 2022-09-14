@@ -77,11 +77,13 @@ object Main extends IOApp {
               filePath = alertmanagerConf.configPath
             )
           }
-          alertmanagerRoutes = new AlertmanagerRoutes(
-            client = client,
-            alertmanagerUrl = alertmanagerConf.url,
-            alertmanagerConfigRepo = alertmanagerConfigRepo
-          )
+          alertmanagerRoutes <- OptionT.liftF {
+            AlertmanagerRoutes(
+              client = client,
+              alertmanagerUrl = alertmanagerConf.url,
+              alertmanagerConfigRepo = alertmanagerConfigRepo
+            )
+          }
         } yield alertmanagerRoutes).value
       }
       routes = Router[IO](

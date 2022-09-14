@@ -7,26 +7,22 @@ import io.circe.syntax._
 import io.circe.yaml.syntax._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
-import org.http4s.{HttpRoutes, Request, Response, Uri}
+import org.http4s.{HttpRoutes, Uri}
 import org.log4s.getLogger
 
-class AlertmanagerRoutes(
-                          client: Client[IO],
-                          alertmanagerUrl: Uri,
-                          alertmanagerConfigRepo: AlertmanagerConfigRepo[IO]
-                        ) {
+import scala.concurrent.duration._
+
+class AlertmanagerRoutes private(
+                                  client: Client[IO],
+                                  alertmanagerUrl: Uri,
+                                  alertmanagerConfigRepo: AlertmanagerConfigRepo[IO]
+                                ) {
   private val logger = getLogger
 
-  private val httpApp = client.toHttpApp
+  private val httpApp = client.toHttpApp.warnSlowResponse.proxyTo(alertmanagerUrl)
 
-  def proxyRequest(request: Request[IO]): IO[Response[IO]] = {
-    val newRequest = changeDestination(request, alertmanagerUrl)
-    warnSlowResponse(
-      httpApp(newRequest),
-      logger,
-      newRequest.uri
-    )
-  }
+  def reloadRules: IO[Unit] =
+    httpApp(reloadRequest).start.void
 
   def toRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case GET -> Root / "api" / "v1" / "alerts" =>
@@ -38,17 +34,38 @@ class AlertmanagerRoutes(
       request.as[YamlSyntax].flatMap { yaml =>
         val config = yaml.tree.as[AlertmanagerConfig].toTry.get
         alertmanagerConfigRepo.setConfig(config) >>
+          reloadRules >>
           Created()
       }
 
     case DELETE -> Root / "api" / "v1" / "alerts" =>
       alertmanagerConfigRepo.deleteConfig >>
+        reloadRules >>
         Ok()
 
     case request@_ -> "alertmanager" /: pathInfo =>
-      proxyRequest(request.withPathInfo(pathInfo)).map { response =>
+      httpApp(request.withPathInfo(pathInfo)).map { response =>
         logger.debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
         response
       }
+  }
+}
+
+object AlertmanagerRoutes {
+  def apply(
+             client: Client[IO],
+             alertmanagerUrl: Uri,
+             alertmanagerConfigRepo: AlertmanagerConfigRepo[IO]
+           ): IO[AlertmanagerRoutes] = {
+    val routes = new AlertmanagerRoutes(
+      client = client,
+      alertmanagerUrl = alertmanagerUrl,
+      alertmanagerConfigRepo = alertmanagerConfigRepo
+    )
+
+    def reloadSchedule: IO[Unit] =
+      (routes.reloadRules >> reloadSchedule).delayBy(5.minutes)
+
+    reloadSchedule.start.as(routes)
   }
 }

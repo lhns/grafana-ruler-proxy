@@ -11,7 +11,7 @@ import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.client.middleware.GZip
 import org.http4s.dsl.io._
-import org.http4s.{HttpRoutes, Method, Request, Response, Status, Uri}
+import org.http4s.{HttpRoutes, Status, Uri}
 import org.log4s.getLogger
 
 import scala.concurrent.duration._
@@ -25,27 +25,15 @@ class PrometheusRoutes private(
                               ) {
   private val logger = getLogger
 
-  private val httpApp = client.toHttpApp
-  private val gzipHttpApp = GZip()(client).toHttpApp
-
-  private def proxyRequest(request: Request[IO]): IO[Response[IO]] = {
-    val newRequest = changeDestination(request, prometheusUrl)
-    warnSlowResponse(
-      httpApp(newRequest),
-      logger,
-      newRequest.uri
-    )
-  }
+  private val httpApp = client.toHttpApp.warnSlowResponse.proxyTo(prometheusUrl)
+  private val gzipHttpApp = GZip()(client).toHttpApp.warnSlowResponse.proxyTo(prometheusUrl)
 
   def reloadRules: IO[Unit] =
-    proxyRequest(Request[IO](
-      method = Method.POST,
-      uri = prometheusUrl / "-" / "reload"
-    )).start.void
+    httpApp(reloadRequest).start.void
 
   def toRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
-      proxyRequest(request).flatMap { response =>
+      httpApp(request).flatMap { response =>
         OptionT.whenF(response.status.isSuccess) {
           response.as[Json]
         }
@@ -110,12 +98,7 @@ class PrometheusRoutes private(
         Accepted(Json.obj())
 
     case request@GET -> Root / "api" / "v1" / "rules" =>
-      val newRequest = changeDestination(request, prometheusUrl)
-      warnSlowResponse(
-        gzipHttpApp(newRequest),
-        logger,
-        newRequest.uri
-      ).flatMap { response =>
+      gzipHttpApp(request).flatMap { response =>
         OptionT.whenF(response.status.isSuccess) {
           response.as[Json].map { rules =>
             val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
@@ -125,7 +108,7 @@ class PrometheusRoutes private(
       }
 
     case request =>
-      proxyRequest(request).map { response =>
+      httpApp(request).map { response =>
         logger.debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
         response
       }
