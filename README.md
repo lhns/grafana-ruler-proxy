@@ -5,13 +5,13 @@
 ```json
 {
   "prometheus": {
-    "url": "http://prometheus",
-    "rulePath": "rules.yml",
+    "url": "http://prometheus:9090",
+    "rulePath": "/prometheus/rules.yml",
     "internalRulePath": "/config/rules.yml"
   },
   "alertmanager": {
-    "url": "http://alertmanager",
-    "configPath": "alerts.yml"
+    "url": "http://alertmanager:9093",
+    "configPath": "/alertmanager/alertmanager.yml"
   }
 }
 ```
