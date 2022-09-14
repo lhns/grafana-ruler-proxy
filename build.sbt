@@ -40,7 +40,7 @@ lazy val commonSettings: Seq[Setting[_]] = Seq(
 lazy val root = (project in file("."))
   .settings(commonSettings)
   .settings(
-    name := "alertmanager-ruler-proxy",
+    name := "grafana-ruler-proxy",
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % V.logbackClassic,
       "de.lolhens" %% "http4s-proxy" % V.http4sProxy,
