@@ -5,9 +5,11 @@ import cats.effect.IO
 import de.lhns.alertmanager.ruler.model.RuleGroup
 import de.lhns.alertmanager.ruler.repo.RulesConfigRepo
 import io.circe.Json
+import io.circe.optics.JsonPath.root
 import io.circe.yaml.syntax._
 import org.http4s.circe._
 import org.http4s.client.Client
+import org.http4s.client.middleware.GZip
 import org.http4s.dsl.io._
 import org.http4s.{HttpRoutes, Method, Request, Response, Status, Uri}
 import org.log4s.getLogger
@@ -18,11 +20,13 @@ class PrometheusRoutes private(
                                 client: Client[IO],
                                 prometheusUrl: Uri,
                                 alertmanagerConfigApiEnabled: Boolean,
-                                rulesConfigRepo: RulesConfigRepo[IO]
+                                rulesConfigRepo: RulesConfigRepo[IO],
+                                namespaceMappings: Map[String, String]
                               ) {
   private val logger = getLogger
 
   private val httpApp = client.toHttpApp
+  private val gzipHttpApp = GZip()(client).toHttpApp
 
   private def proxyRequest(request: Request[IO]): IO[Response[IO]] = {
     val newRequest = changeDestination(request, prometheusUrl)
@@ -105,6 +109,21 @@ class PrometheusRoutes private(
         reloadRules >>
         Accepted(Json.obj())
 
+    case request@GET -> Root / "api" / "v1" / "rules" =>
+      val newRequest = changeDestination(request, prometheusUrl)
+      warnSlowResponse(
+        gzipHttpApp(newRequest),
+        logger,
+        newRequest.uri
+      ).flatMap { response =>
+        OptionT.whenF(response.status.isSuccess) {
+          response.as[Json].map { rules =>
+            val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
+            response.withEntity(newRules)
+          }
+        }.getOrElse(response)
+      }
+
     case request =>
       proxyRequest(request).map { response =>
         logger.debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
@@ -118,13 +137,15 @@ object PrometheusRoutes {
              client: Client[IO],
              prometheusUrl: Uri,
              alertmanagerConfigApiEnabled: Boolean,
-             rulesConfigRepo: RulesConfigRepo[IO]
+             rulesConfigRepo: RulesConfigRepo[IO],
+             namespaceMappings: Map[String, String]
            ): IO[PrometheusRoutes] = {
     val routes = new PrometheusRoutes(
       client = client,
       prometheusUrl = prometheusUrl,
       alertmanagerConfigApiEnabled = alertmanagerConfigApiEnabled,
-      rulesConfigRepo = rulesConfigRepo
+      rulesConfigRepo = rulesConfigRepo,
+      namespaceMappings = namespaceMappings
     )
 
     def reloadSchedule: IO[Unit] =

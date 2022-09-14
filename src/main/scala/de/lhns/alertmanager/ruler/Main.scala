@@ -44,13 +44,14 @@ object Main extends IOApp {
   def applicationResource(config: Config): Resource[IO, Unit] =
     for {
       client <- JdkHttpClient.simple[IO]
+      namespace = "rules"
       prometheusRoutesOption <- Resource.eval {
         (for {
           prometheusConf <- OptionT.fromOption[IO](config.prometheus)
           rulesConfigRepo <- OptionT.liftF {
             RulesConfigRepoFileImpl[IO](
               filePath = prometheusConf.rulePath,
-              namespace = prometheusConf.internalRulePath
+              namespace = namespace
             )
           }
           prometheusRoutes <- OptionT.liftF {
@@ -58,7 +59,10 @@ object Main extends IOApp {
               client = client,
               prometheusUrl = prometheusConf.url,
               alertmanagerConfigApiEnabled = config.alertmanager.isDefined,
-              rulesConfigRepo = rulesConfigRepo
+              rulesConfigRepo = rulesConfigRepo,
+              namespaceMappings = Map(
+                prometheusConf.internalRulePath -> namespace
+              )
             )
           }
         } yield
