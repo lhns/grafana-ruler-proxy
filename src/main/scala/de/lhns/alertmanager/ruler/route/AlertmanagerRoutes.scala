@@ -15,11 +15,12 @@ import scala.concurrent.duration._
 class AlertmanagerRoutes private(
                                   client: Client[IO],
                                   alertmanagerUrl: Uri,
-                                  alertmanagerConfigRepo: AlertmanagerConfigRepo[IO]
+                                  alertmanagerConfigRepo: AlertmanagerConfigRepo[IO],
+                                  warnDelay: FiniteDuration
                                 ) {
   private val logger = getLogger
 
-  private val httpApp = client.toHttpApp.warnSlowResponse.proxyTo(alertmanagerUrl)
+  private val httpApp = client.toHttpApp.warnSlowResponse(warnDelay).proxyTo(alertmanagerUrl)
 
   def reloadRules: IO[Unit] =
     httpApp(reloadRequest).start.void
@@ -55,12 +56,14 @@ object AlertmanagerRoutes {
   def apply(
              client: Client[IO],
              alertmanagerUrl: Uri,
-             alertmanagerConfigRepo: AlertmanagerConfigRepo[IO]
+             alertmanagerConfigRepo: AlertmanagerConfigRepo[IO],
+             warnDelay: FiniteDuration
            ): IO[AlertmanagerRoutes] = {
     val routes = new AlertmanagerRoutes(
       client = client,
       alertmanagerUrl = alertmanagerUrl,
-      alertmanagerConfigRepo = alertmanagerConfigRepo
+      alertmanagerConfigRepo = alertmanagerConfigRepo,
+      warnDelay = warnDelay
     )
 
     def reloadSchedule: IO[Unit] =

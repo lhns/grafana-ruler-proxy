@@ -62,7 +62,8 @@ object Main extends IOApp {
               rulesConfigRepo = rulesConfigRepo,
               namespaceMappings = Map(
                 prometheusConf.internalRulePath -> namespace
-              )
+              ),
+              warnDelay = config.warnDelayOrDefault
             )
           }
         } yield
@@ -81,7 +82,8 @@ object Main extends IOApp {
             AlertmanagerRoutes(
               client = client,
               alertmanagerUrl = alertmanagerConf.url,
-              alertmanagerConfigRepo = alertmanagerConfigRepo
+              alertmanagerConfigRepo = alertmanagerConfigRepo,
+              warnDelay = config.warnDelayOrDefault
             )
           }
         } yield alertmanagerRoutes).value

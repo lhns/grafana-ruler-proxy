@@ -21,12 +21,13 @@ class PrometheusRoutes private(
                                 prometheusUrl: Uri,
                                 alertmanagerConfigApiEnabled: Boolean,
                                 rulesConfigRepo: RulesConfigRepo[IO],
-                                namespaceMappings: Map[String, String]
+                                namespaceMappings: Map[String, String],
+                                warnDelay: FiniteDuration
                               ) {
   private val logger = getLogger
 
-  private val httpApp = client.toHttpApp.warnSlowResponse.proxyTo(prometheusUrl)
-  private val gzipHttpApp = GZip()(client).toHttpApp.warnSlowResponse.proxyTo(prometheusUrl)
+  private val httpApp = client.toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
+  private val gzipHttpApp = GZip()(client).toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
 
   def reloadRules: IO[Unit] =
     httpApp(reloadRequest).start.void
@@ -121,14 +122,16 @@ object PrometheusRoutes {
              prometheusUrl: Uri,
              alertmanagerConfigApiEnabled: Boolean,
              rulesConfigRepo: RulesConfigRepo[IO],
-             namespaceMappings: Map[String, String]
+             namespaceMappings: Map[String, String],
+             warnDelay: FiniteDuration
            ): IO[PrometheusRoutes] = {
     val routes = new PrometheusRoutes(
       client = client,
       prometheusUrl = prometheusUrl,
       alertmanagerConfigApiEnabled = alertmanagerConfigApiEnabled,
       rulesConfigRepo = rulesConfigRepo,
-      namespaceMappings = namespaceMappings
+      namespaceMappings = namespaceMappings,
+      warnDelay = warnDelay
     )
 
     def reloadSchedule: IO[Unit] =

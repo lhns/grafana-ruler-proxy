@@ -31,12 +31,12 @@ package object route {
       .contramap(_.spaces2)
 
   implicit class HttpAppOps[F[_]](httpApp: HttpApp[F]) {
-    def warnSlowResponse(implicit F: Async[F]): HttpApp[F] = {
+    def warnSlowResponse(delay: FiniteDuration)(implicit F: Async[F]): HttpApp[F] = {
       HttpApp[F] { request =>
         for {
           fiber <- Async[F].delay {
             logger.warn(s"request to ${request.uri} is taking longer than expected")
-          }.delayBy(10.seconds).start
+          }.delayBy(delay).start
           response <- httpApp(request)
           _ <- fiber.cancel
         } yield response

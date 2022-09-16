@@ -6,13 +6,17 @@ import io.circe.{Codec, Decoder, Encoder}
 import org.http4s.Uri
 
 import java.nio.file.{Path, Paths}
+import scala.concurrent.duration._
 
 case class Config(
                    httpPort: Option[Port],
                    prometheus: Option[Config.PrometheusConf],
-                   alertmanager: Option[Config.AlertmanagerConf]
+                   alertmanager: Option[Config.AlertmanagerConf],
+                   warnDelay: Option[FiniteDuration]
                  ) {
   val httpPortOrDefault: Port = httpPort.getOrElse(port"8080")
+
+  val warnDelayOrDefault: FiniteDuration = warnDelay.getOrElse(10.seconds)
 }
 
 object Config {
@@ -48,6 +52,13 @@ object Config {
   private implicit val uriCodec: Codec[Uri] = Codec.from(
     Decoder.decodeString.map(Uri.unsafeFromString),
     Encoder.encodeString.contramap(_.renderString)
+  )
+
+  private implicit val finiteDurationCodec: Codec[FiniteDuration] = Codec.from(
+    Decoder.decodeString.map(Duration(_) match {
+      case finiteDuration: FiniteDuration => finiteDuration
+    }),
+    Encoder.encodeString.contramap(_.toString)
   )
 
   implicit val codec: Codec[Config] = deriveCodec

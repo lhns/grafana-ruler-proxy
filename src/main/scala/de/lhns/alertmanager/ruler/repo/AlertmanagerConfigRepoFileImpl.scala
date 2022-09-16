@@ -4,6 +4,7 @@ import cats.effect.std.Semaphore
 import cats.effect.{Async, Sync}
 import cats.syntax.functor._
 import de.lhns.alertmanager.ruler.model.AlertmanagerConfig
+import io.circe.yaml.syntax._
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
@@ -17,15 +18,19 @@ class AlertmanagerConfigRepoFileImpl[F[_] : Sync] private(
     if (Files.exists(filePath)) {
       val configString = Files.readString(filePath)
       AlertmanagerConfig(
-        template_files = Map.empty,
-        alertmanager_config = configString
+        templateFiles = Map.empty,
+        alertmanagerConfig = {
+          io.circe.yaml.parser.parse(configString)
+            .toTry.get
+        }
       )
     } else
       AlertmanagerConfig.empty
   }
 
   private def writeConfig(config: AlertmanagerConfig): F[Unit] = Sync[F].blocking {
-    Files.writeString(filePath, config.alertmanager_config, StandardCharsets.UTF_8)
+    val configString = config.alertmanagerConfig.asYaml.spaces2
+    Files.writeString(filePath, configString, StandardCharsets.UTF_8)
   }
 
   override def getConfig: F[AlertmanagerConfig] = semaphore.permit.use { _ =>
