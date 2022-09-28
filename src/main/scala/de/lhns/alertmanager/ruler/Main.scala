@@ -8,10 +8,11 @@ import de.lhns.alertmanager.ruler.repo.{AlertmanagerConfigRepoFileImpl, RulesCon
 import de.lhns.alertmanager.ruler.route.{AlertmanagerRoutes, PrometheusRoutes}
 import de.lolhens.trustmanager.TrustManagers._
 import io.circe.syntax._
-import org.http4s.HttpRoutes
+import org.http4s.{HttpApp, HttpRoutes}
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.jdkhttpclient.JdkHttpClient
-import org.http4s.server.Router
+import org.http4s.server.middleware.ErrorAction
+import org.http4s.server.{Router, Server}
 import org.log4s.getLogger
 
 import java.net.ProxySelector
@@ -92,10 +93,25 @@ object Main extends IOApp {
         "/prometheus" -> prometheusRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO]),
         "/" -> alertmanagerRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
       )
-      _ <- EmberServerBuilder.default[IO]
-        .withHost(host"0.0.0.0")
-        .withPort(config.httpPortOrDefault)
-        .withHttpApp(routes.orNotFound)
-        .build
+      _ <- serverResource(
+        host"0.0.0.0",
+        config.httpPortOrDefault,
+        routes.orNotFound
+      )
     } yield ()
+
+  def serverResource(host: Host, port: Port, http: HttpApp[IO]): Resource[IO, Server] =
+    for {
+      server <- EmberServerBuilder
+        .default[IO]
+        .withHost(host)
+        .withPort(port)
+        .withHttpApp(
+          ErrorAction.log(
+            http = http,
+            messageFailureLogAction = (t, msg) => IO(logger.debug(t)(msg)),
+            serviceErrorLogAction = (t, msg) => IO(logger.error(t)(msg))
+          ))
+        .build
+    } yield server
 }
