@@ -5,7 +5,7 @@ ThisBuild / scalaVersion := "2.13.9"
 val V = new {
   val catsEffect = "3.3.14"
   val circe = "0.14.2"
-  val circeConfig = "0.8.0"
+  val circeConfig = "0.10.0"
   val circeOptics = "0.14.1"
   val circeYaml = "0.14.1"
   val http4s = "0.23.15"
@@ -43,19 +43,19 @@ lazy val root = (project in file("."))
     name := "grafana-ruler-proxy",
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % V.logbackClassic,
+      "com.hunorkovacs" %% "circe-config" % V.circeConfig,
       "de.lolhens" %% "http4s-proxy" % V.http4sProxy,
       "de.lolhens" %% "scala-trustmanager-utils" % V.scalaTrustmanagerUtils,
+      "io.circe" %% "circe-core" % V.circe,
+      "io.circe" %% "circe-generic" % V.circe,
+      "io.circe" %% "circe-optics" % V.circeOptics,
+      "io.circe" %% "circe-parser" % V.circe,
+      "io.circe" %% "circe-yaml" % V.circeYaml,
       "org.bidib.com.github.markusbernhardt" % "proxy-vole" % V.proxyVole,
       "org.http4s" %% "http4s-circe" % V.http4s,
       "org.http4s" %% "http4s-dsl" % V.http4s,
       "org.http4s" %% "http4s-ember-server" % V.http4s,
       "org.http4s" %% "http4s-jdk-http-client" % V.http4sJdkHttpClient,
       "org.typelevel" %% "cats-effect" % V.catsEffect,
-      "io.circe" %% "circe-config" % V.circeConfig,
-      "io.circe" %% "circe-core" % V.circe,
-      "io.circe" %% "circe-generic" % V.circe,
-      "io.circe" %% "circe-optics" % V.circeOptics,
-      "io.circe" %% "circe-parser" % V.circe,
-      "io.circe" %% "circe-yaml" % V.circeYaml,
     )
   )
