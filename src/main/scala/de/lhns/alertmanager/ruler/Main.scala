@@ -32,18 +32,12 @@ object Main extends IOApp {
 
     setDefaultTrustManager(jreTrustManagerWithEnvVar)
 
-    val config =
-      Option(System.getenv("CONFIG"))
-        .map(io.circe.config.parser.decode[Config](_).toTry.get)
-        .getOrElse(throw new IllegalArgumentException("Missing variable: CONFIG"))
-
-    logger.info(config.asJson.spaces2)
-
-    applicationResource(config).use(_ => IO.never).as(ExitCode.Success)
+    applicationResource(Config.fromEnv).use(_ => IO.never).as(ExitCode.Success)
   }
 
   def applicationResource(config: Config): Resource[IO, Unit] =
     for {
+      _ <- Resource.eval(IO(logger.info(s"CONFIG: ${config.asJson.spaces2}")))
       client <- JdkHttpClient.simple[IO]
       namespace = "rules"
       prometheusRoutesOption <- Resource.eval {
