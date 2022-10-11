@@ -1,5 +1,3 @@
-ThisBuild / version := "0.1.0-SNAPSHOT"
-
 ThisBuild / scalaVersion := "2.13.9"
 
 val V = new {
@@ -19,6 +17,11 @@ val V = new {
 }
 
 lazy val commonSettings: Seq[Setting[_]] = Seq(
+  version := {
+    val Tag = "refs/tags/v?([0-9]+(?:\\.[0-9]+)+(?:[+-].*)?)".r
+    sys.env.get("CI_VERSION").collect { case Tag(tag) => tag }
+      .getOrElse("0.0.1-SNAPSHOT")
+  },
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   libraryDependencies ++= Seq(
     "ch.qos.logback" % "logback-classic" % V.logbackClassic % Test,
@@ -41,6 +44,7 @@ lazy val root = (project in file("."))
   .settings(commonSettings)
   .settings(
     name := "grafana-ruler-proxy",
+
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % V.logbackClassic,
       "com.hunorkovacs" %% "circe-config" % V.circeConfig,
