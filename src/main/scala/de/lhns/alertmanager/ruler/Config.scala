@@ -1,5 +1,8 @@
 package de.lhns.alertmanager.ruler
 
+import cats.data.OptionT
+import cats.effect.Sync
+import cats.effect.std.Env
 import com.comcast.ip4s._
 import io.circe.generic.semiauto._
 import io.circe.{Codec, Decoder, Encoder}
@@ -63,9 +66,9 @@ object Config {
 
   implicit val codec: Codec[Config] = deriveCodec
 
-  lazy val fromEnv: Config =
-    Option(System.getenv("CONFIG"))
-      .toRight(new IllegalArgumentException("Missing variable: CONFIG"))
-      .flatMap(io.circe.config.parser.decode[Config](_))
-      .toTry.get
+  def fromEnv[F[_] : Sync](env: Env[F]): F[Config] =
+    OptionT(env.get("CONFIG"))
+      .toRight(new IllegalArgumentException("Missing environment variable: CONFIG"))
+      .subflatMap(io.circe.config.parser.decode[Config](_))
+      .rethrowT
 }

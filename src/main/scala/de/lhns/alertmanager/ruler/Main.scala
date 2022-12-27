@@ -1,6 +1,7 @@
 package de.lhns.alertmanager.ruler
 
 import cats.data.OptionT
+import cats.effect.std.Env
 import cats.effect.{ExitCode, IO, IOApp, Resource}
 import com.comcast.ip4s._
 import com.github.markusbernhardt.proxy.ProxySearch
@@ -32,13 +33,14 @@ object Main extends IOApp {
 
     setDefaultTrustManager(jreTrustManagerWithEnvVar)
 
-    applicationResource(Config.fromEnv).use(_ => IO.never).as(ExitCode.Success)
+    applicationResource.use(_ => IO.never)
   }
 
-  def applicationResource(config: Config): Resource[IO, Unit] =
+  def applicationResource: Resource[IO, Unit] =
     for {
-      _ <- Resource.eval(IO(logger.info(s"CONFIG: ${config.asJson.spaces2}")))
-      client <- JdkHttpClient.simple[IO]
+      config <- Resource.eval(Config.fromEnv(Env.make[IO]))
+      _ = logger.info(s"CONFIG: ${config.asJson.spaces2}")
+      client <- Resource.eval(JdkHttpClient.simple[IO])
       namespace = "rules"
       prometheusRoutesOption <- Resource.eval {
         (for {
