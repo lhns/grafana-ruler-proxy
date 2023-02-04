@@ -8,7 +8,7 @@ val V = new {
   val circeYaml = "0.14.2"
   val http4s = "0.23.18"
   val http4sJdkHttpClient = "0.8.0"
-  val http4sProxy = "0.4.0"
+  val http4sProxy = "0.4.1"
   val logbackClassic = "1.4.5"
   val munit = "0.7.29"
   val munitTaglessFinal = "0.2.0"
@@ -48,8 +48,8 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % V.logbackClassic,
       "com.hunorkovacs" %% "circe-config" % V.circeConfig,
-      "de.lolhens" %% "http4s-proxy" % V.http4sProxy,
-      "de.lolhens" %% "scala-trustmanager-utils" % V.trustmanagerUtils,
+      "de.lhns" %% "http4s-proxy" % V.http4sProxy,
+      "de.lhns" %% "scala-trustmanager-utils" % V.trustmanagerUtils,
       "io.circe" %% "circe-core" % V.circe,
       "io.circe" %% "circe-generic" % V.circe,
       "io.circe" %% "circe-optics" % V.circeOptics,
