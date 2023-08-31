@@ -2,7 +2,7 @@ ThisBuild / scalaVersion := "2.13.11"
 
 val V = new {
   val catsEffect = "3.5.1"
-  val circe = "0.14.5"
+  val circe = "0.14.6"
   val circeConfig = "0.10.0"
   val circeOptics = "0.14.1"
   val circeYaml = "0.14.2"
