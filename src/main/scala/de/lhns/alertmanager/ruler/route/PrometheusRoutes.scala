@@ -34,6 +34,7 @@ class PrometheusRoutes private(
 
   def toRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
+      // https://prometheus.io/docs/prometheus/latest/querying/api/#build-information
       httpApp(request).flatMap { response =>
         OptionT.whenF(response.status.isSuccess) {
           response.as[Json]
@@ -57,7 +58,30 @@ class PrometheusRoutes private(
           }
       }
 
+    case request@GET -> Root / "api" / "v1" / "rules" =>
+      // https://prometheus.io/docs/prometheus/latest/querying/api/#rules
+      gzipHttpApp(request).flatMap { response =>
+        OptionT.whenF(response.status.isSuccess) {
+          response.as[Json].map { rules =>
+            val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
+            response.withEntity(newRules)
+          }
+        }.getOrElse(response)
+      }
+
+    case request@GET -> Root / "api" / "v1" / "alerts" =>
+      // https://prometheus.io/docs/prometheus/latest/querying/api/#alerts
+      gzipHttpApp(request).flatMap { response =>
+        OptionT.whenF(response.status.isSuccess) {
+          response.as[Json].map { rules =>
+            val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
+            response.withEntity(newRules)
+          }
+        }.getOrElse(response)
+      }
+
     case GET -> Root / "config" / "v1" / "rules" =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#list-rule-groups
       rulesConfigRepo.listRuleGroups
         .map(namespaces => Json.fromFields(namespaces.map {
           case (namespace, groups) => namespace -> Json.fromValues(groups.map(_.json))
@@ -66,12 +90,14 @@ class PrometheusRoutes private(
         .flatMap(Ok(_))
 
     case GET -> Root / "config" / "v1" / "rules" / namespace =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#get-rule-groups-by-namespace
       rulesConfigRepo.getRuleGroupsByNamespace(namespace)
         .map(groups => Json.fromValues(groups.map(_.json)))
         .map(_.asYaml)
         .flatMap(Ok(_))
 
     case GET -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#get-rule-group
       OptionT(rulesConfigRepo.getRuleGroup(namespace, groupName))
         .map(_.json)
         .getOrElse(Json.obj(
@@ -82,6 +108,7 @@ class PrometheusRoutes private(
         .flatMap(Ok(_))
 
     case request@POST -> Root / "config" / "v1" / "rules" / namespace =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#set-rule-group
       request.as[YamlSyntax].flatMap { rule =>
         rulesConfigRepo.setRuleGroup(namespace, RuleGroup(rule.tree)) >>
           reloadRules >>
@@ -89,24 +116,16 @@ class PrometheusRoutes private(
       }
 
     case DELETE -> Root / "config" / "v1" / "rules" / namespace / groupName =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#delete-rule-group
       rulesConfigRepo.deleteRuleGroup(namespace, groupName) >>
         reloadRules >>
         Accepted(Json.obj())
 
     case DELETE -> Root / "config" / "v1" / "rules" / namespace =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#delete-namespace
       rulesConfigRepo.deleteNamespace(namespace) >>
         reloadRules >>
         Accepted(Json.obj())
-
-    case request@GET -> Root / "api" / "v1" / "rules" =>
-      gzipHttpApp(request).flatMap { response =>
-        OptionT.whenF(response.status.isSuccess) {
-          response.as[Json].map { rules =>
-            val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
-            response.withEntity(newRules)
-          }
-        }.getOrElse(response)
-      }
 
     case request =>
       httpApp(request).map { response =>
