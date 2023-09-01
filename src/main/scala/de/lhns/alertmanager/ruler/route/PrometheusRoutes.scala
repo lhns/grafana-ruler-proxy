@@ -19,6 +19,7 @@ import scala.concurrent.duration._
 
 class PrometheusRoutes private(
                                 client: Client[IO],
+                                rulesUrl: Uri,
                                 prometheusUrl: Uri,
                                 alertmanagerConfigApiEnabled: Boolean,
                                 rulesConfigRepo: RulesConfigRepo[IO],
@@ -27,19 +28,19 @@ class PrometheusRoutes private(
                               ) {
   private implicit val logger: SelfAwareStructuredLogger[IO] = LoggerFactory[IO].getLogger
 
-  private val httpApp = client.toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
-  private val gzipHttpApp = GZip()(client).toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
+  private val prometheusApp = client.toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
+  private val rulesGzipApp = GZip()(client).toHttpApp.warnSlowResponse(warnDelay).proxyTo(rulesUrl)
 
   def reloadRules: IO[Unit] =
-    httpApp(reloadRequest).start.void
+    rulesGzipApp(reloadRequest).start.void
 
   def toRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case request@GET -> Root / "api" / "v1" / "status" / "buildinfo" =>
       // https://prometheus.io/docs/prometheus/latest/querying/api/#build-information
-      httpApp(request).flatMap { response =>
+      rulesGzipApp(request).flatMap { response =>
         OptionT.whenF(response.status.isSuccess) {
-          response.as[Json]
-        }
+            response.as[Json]
+          }
           .getOrElse(Json.obj(
             "status" -> Json.fromString("success")
           ))
@@ -61,7 +62,7 @@ class PrometheusRoutes private(
 
     case request@GET -> Root / "api" / "v1" / "rules" =>
       // https://prometheus.io/docs/prometheus/latest/querying/api/#rules
-      gzipHttpApp(request).flatMap { response =>
+      rulesGzipApp(request).flatMap { response =>
         OptionT.whenF(response.status.isSuccess) {
           response.as[Json].map { rules =>
             val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
@@ -118,7 +119,7 @@ class PrometheusRoutes private(
         Accepted(Json.obj())
 
     case request =>
-      httpApp(request).flatMap { response =>
+      prometheusApp(request).flatMap { response =>
         Logger[IO].debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
           .as(response)
       }
@@ -128,6 +129,7 @@ class PrometheusRoutes private(
 object PrometheusRoutes {
   def apply(
              client: Client[IO],
+             rulesUrl: Uri,
              prometheusUrl: Uri,
              alertmanagerConfigApiEnabled: Boolean,
              rulesConfigRepo: RulesConfigRepo[IO],
@@ -136,6 +138,7 @@ object PrometheusRoutes {
            ): IO[PrometheusRoutes] = {
     val routes = new PrometheusRoutes(
       client = client,
+      rulesUrl = rulesUrl,
       prometheusUrl = prometheusUrl,
       alertmanagerConfigApiEnabled = alertmanagerConfigApiEnabled,
       rulesConfigRepo = rulesConfigRepo,

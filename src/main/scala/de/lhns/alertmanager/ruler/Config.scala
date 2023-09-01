@@ -25,9 +25,15 @@ case class Config(
 object Config {
   case class PrometheusConf(
                              url: Uri,
+                             rulesUrl: Option[Uri],
                              rulePath: Path,
-                             internalRulePath: String
-                           )
+                             internalRulePath: String,
+                             namespace: Option[String]
+                           ) {
+    val rulesUrlOrDefault: Uri = rulesUrl.getOrElse(url)
+
+    val namespaceOrDefault: String = namespace.getOrElse(internalRulePath)
+  }
 
   object PrometheusConf {
     implicit val codec: Codec[PrometheusConf] = deriveCodec

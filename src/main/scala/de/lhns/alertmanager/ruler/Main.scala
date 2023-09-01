@@ -45,24 +45,24 @@ object Main extends IOApp {
       config <- Resource.eval(Config.fromEnv(Env.make[IO]))
       _ = logger.info(s"CONFIG: ${config.asJson.spaces2}")
       client <- Resource.eval(JdkHttpClient.simple[IO])
-      namespace = "rules"
       prometheusRoutesOption <- Resource.eval {
         (for {
           prometheusConf <- OptionT.fromOption[IO](config.prometheus)
           rulesConfigRepo <- OptionT.liftF {
             RulesConfigRepoFileImpl[IO](
               filePath = prometheusConf.rulePath,
-              namespace = namespace
+              namespace = prometheusConf.namespaceOrDefault
             )
           }
           prometheusRoutes <- OptionT.liftF {
             PrometheusRoutes(
               client = client,
               prometheusUrl = prometheusConf.url,
+              rulesUrl = prometheusConf.rulesUrlOrDefault,
               alertmanagerConfigApiEnabled = config.alertmanager.isDefined,
               rulesConfigRepo = rulesConfigRepo,
               namespaceMappings = Map(
-                prometheusConf.internalRulePath -> namespace
+                prometheusConf.internalRulePath -> prometheusConf.namespaceOrDefault
               ),
               warnDelay = config.warnDelayOrDefault
             )
@@ -89,18 +89,11 @@ object Main extends IOApp {
           }
         } yield alertmanagerRoutes).value
       }
-      routes =  {
-        val prometheusRoutes = prometheusRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
-        val alertmanagerRoutes = alertmanagerRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
-
-        Router[IO](
-          "/prometheus" -> prometheusRoutes,
-          "/" -> (alertmanagerRoutes <+> prometheusRoutes)
-        )
-      }
+      prometheusRoutes = prometheusRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
+      alertmanagerRoutes = alertmanagerRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
       _ <- serverResource[IO](
         SocketAddress(host"0.0.0.0", config.httpPortOrDefault),
-        routes.orNotFound
+        (alertmanagerRoutes <+> prometheusRoutes).orNotFound
       )
     } yield ()
 
