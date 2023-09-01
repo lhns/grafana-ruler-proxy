@@ -27,11 +27,14 @@ class AlertmanagerRoutes private(
 
   def toRoutes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case GET -> Root / "api" / "v1" / "alerts" =>
+      // https://prometheus.io/docs/prometheus/latest/querying/api/#alerts
+      // https://grafana.com/docs/mimir/latest/references/http-api/#get-alertmanager-configuration
       alertmanagerConfigRepo.getConfig
         .map(_.asJson.asYaml)
         .flatMap(Ok(_))
 
     case request@POST -> Root / "api" / "v1" / "alerts" =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#set-alertmanager-configuration
       request.as[YamlSyntax].flatMap { yaml =>
         val config = yaml.tree.as[AlertmanagerConfig].toTry.get
         alertmanagerConfigRepo.setConfig(config) >>
@@ -40,6 +43,7 @@ class AlertmanagerRoutes private(
       }
 
     case DELETE -> Root / "api" / "v1" / "alerts" =>
+      // https://grafana.com/docs/mimir/latest/references/http-api/#delete-alertmanager-configuration
       alertmanagerConfigRepo.deleteConfig >>
         reloadRules >>
         Ok()

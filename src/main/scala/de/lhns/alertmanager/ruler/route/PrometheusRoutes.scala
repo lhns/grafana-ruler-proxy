@@ -69,17 +69,6 @@ class PrometheusRoutes private(
         }.getOrElse(response)
       }
 
-    case request@GET -> Root / "api" / "v1" / "alerts" =>
-      // https://prometheus.io/docs/prometheus/latest/querying/api/#alerts
-      gzipHttpApp(request).flatMap { response =>
-        OptionT.whenF(response.status.isSuccess) {
-          response.as[Json].map { rules =>
-            val newRules = root.data.groups.each.file.string.modify(e => namespaceMappings.getOrElse(e, e)).apply(rules)
-            response.withEntity(newRules)
-          }
-        }.getOrElse(response)
-      }
-
     case GET -> Root / "config" / "v1" / "rules" =>
       // https://grafana.com/docs/mimir/latest/references/http-api/#list-rule-groups
       rulesConfigRepo.listRuleGroups
