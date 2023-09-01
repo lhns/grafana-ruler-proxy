@@ -8,7 +8,8 @@ import io.circe.yaml.syntax._
 import org.http4s.client.Client
 import org.http4s.dsl.io._
 import org.http4s.{HttpRoutes, Uri}
-import org.log4s.getLogger
+import org.typelevel.log4cats._
+import org.typelevel.log4cats.slf4j._
 
 import scala.concurrent.duration._
 
@@ -18,7 +19,7 @@ class AlertmanagerRoutes private(
                                   alertmanagerConfigRepo: AlertmanagerConfigRepo[IO],
                                   warnDelay: FiniteDuration
                                 ) {
-  private val logger = getLogger
+  private implicit val logger: SelfAwareStructuredLogger[IO] = LoggerFactory[IO].getLogger
 
   private val httpApp = client.toHttpApp.warnSlowResponse(warnDelay).proxyTo(alertmanagerUrl)
 
@@ -49,9 +50,9 @@ class AlertmanagerRoutes private(
         Ok()
 
     case request@_ -> "alertmanager" /: pathInfo =>
-      httpApp(request.withPathInfo(pathInfo)).map { response =>
-        logger.debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
-        response
+      httpApp(request.withPathInfo(pathInfo)).flatMap { response =>
+        Logger[IO].debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
+          .as(response)
       }
   }
 }

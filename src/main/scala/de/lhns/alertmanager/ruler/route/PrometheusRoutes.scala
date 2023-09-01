@@ -12,7 +12,8 @@ import org.http4s.client.Client
 import org.http4s.client.middleware.GZip
 import org.http4s.dsl.io._
 import org.http4s.{HttpRoutes, Status, Uri}
-import org.log4s.getLogger
+import org.typelevel.log4cats._
+import org.typelevel.log4cats.slf4j._
 
 import scala.concurrent.duration._
 
@@ -24,7 +25,7 @@ class PrometheusRoutes private(
                                 namespaceMappings: Map[String, String],
                                 warnDelay: FiniteDuration
                               ) {
-  private val logger = getLogger
+  private implicit val logger: SelfAwareStructuredLogger[IO] = LoggerFactory[IO].getLogger
 
   private val httpApp = client.toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
   private val gzipHttpApp = GZip()(client).toHttpApp.warnSlowResponse(warnDelay).proxyTo(prometheusUrl)
@@ -117,9 +118,9 @@ class PrometheusRoutes private(
         Accepted(Json.obj())
 
     case request =>
-      httpApp(request).map { response =>
-        logger.debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
-        response
+      httpApp(request).flatMap { response =>
+        Logger[IO].debug(s"${request.method} ${request.uri.path} -> ${response.status.code}")
+          .as(response)
       }
   }
 }
