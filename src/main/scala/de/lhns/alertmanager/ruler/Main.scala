@@ -8,7 +8,7 @@ import com.comcast.ip4s._
 import com.github.markusbernhardt.proxy.ProxySearch
 import de.lhns.alertmanager.ruler.repo.{AlertmanagerConfigRepoFileImpl, RulesConfigRepoFileImpl}
 import de.lhns.alertmanager.ruler.route.{AlertmanagerRoutes, PrometheusRoutes}
-import de.lolhens.trustmanager.TrustManagers._
+import de.lhns.trustmanager.TrustManagers._
 import io.circe.syntax._
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
