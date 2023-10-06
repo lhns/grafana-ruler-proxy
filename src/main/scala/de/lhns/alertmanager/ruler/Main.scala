@@ -93,7 +93,7 @@ object Main extends IOApp {
       httpRoutes = alertmanagerRoutes <+> prometheusRoutes
       _ <- serverResource[IO](
         SocketAddress(host"0.0.0.0", config.httpPortOrDefault), {
-          if (config.debugOrDefault) Http4sLogger.httpRoutes(logHeaders = false, logBody = false)(httpRoutes)
+          if (config.debugOrDefault) Http4sLogger.httpRoutes(logHeaders = true, logBody = false)(httpRoutes)
           else httpRoutes
         }.orNotFound
       )
