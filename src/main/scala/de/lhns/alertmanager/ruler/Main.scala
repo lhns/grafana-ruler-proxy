@@ -2,7 +2,6 @@ package de.lhns.alertmanager.ruler
 
 import cats.data.OptionT
 import cats.effect._
-import cats.effect.std.Env
 import cats.syntax.semigroupk._
 import com.comcast.ip4s._
 import com.github.markusbernhardt.proxy.ProxySearch
@@ -13,8 +12,8 @@ import io.circe.syntax._
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits._
 import org.http4s.jdkhttpclient.JdkHttpClient
-import org.http4s.server.middleware.{ErrorAction, ErrorHandling}
-import org.http4s.server.{Router, Server}
+import org.http4s.server.Server
+import org.http4s.server.middleware.{ErrorHandling, Logger => Http4sLogger}
 import org.http4s.{HttpApp, HttpRoutes}
 import org.typelevel.log4cats._
 import org.typelevel.log4cats.slf4j._
@@ -42,8 +41,8 @@ object Main extends IOApp {
 
   def applicationResource: Resource[IO, Unit] =
     for {
-      config <- Resource.eval(Config.fromEnv(Env.make[IO]))
-      _ = logger.info(s"CONFIG: ${config.asJson.spaces2}")
+      config <- Resource.eval(Config.fromEnv[IO]("CONFIG"))
+      _ <- Resource.eval(logger.info(s"CONFIG: ${config.asJson.spaces2}"))
       client <- Resource.eval(JdkHttpClient.simple[IO])
       prometheusRoutesOption <- Resource.eval {
         (for {
@@ -91,27 +90,24 @@ object Main extends IOApp {
       }
       prometheusRoutes = prometheusRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
       alertmanagerRoutes = alertmanagerRoutesOption.map(_.toRoutes).getOrElse(HttpRoutes.empty[IO])
+      httpRoutes = alertmanagerRoutes <+> prometheusRoutes
       _ <- serverResource[IO](
-        SocketAddress(host"0.0.0.0", config.httpPortOrDefault),
-        (alertmanagerRoutes <+> prometheusRoutes).orNotFound
+        SocketAddress(host"0.0.0.0", config.httpPortOrDefault), {
+          if (config.debugOrDefault) Http4sLogger.httpRoutes(logHeaders = false, logBody = false)(httpRoutes)
+          else httpRoutes
+        }.orNotFound
       )
     } yield ()
 
-  def serverResource[F[_] : Async : Logger](
-                                             socketAddress: SocketAddress[Host],
-                                             http: HttpApp[F]
-                                           ): Resource[F, Server] =
+  def serverResource[F[_] : Async](
+                                    socketAddress: SocketAddress[Host],
+                                    httpApp: HttpApp[F]
+                                  ): Resource[F, Server] =
     EmberServerBuilder
       .default[F]
       .withHost(socketAddress.host)
       .withPort(socketAddress.port)
-      .withHttpApp(
-        ErrorHandling.Recover.total(
-          ErrorAction.log(
-            http = http,
-            messageFailureLogAction = (t, msg) => Logger[F].debug(t)(msg),
-            serviceErrorLogAction = (t, msg) => Logger[F].error(t)(msg)
-          )))
+      .withHttpApp(ErrorHandling(httpApp))
       .withShutdownTimeout(1.second)
       .build
 }

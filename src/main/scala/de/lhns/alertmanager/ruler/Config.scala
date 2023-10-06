@@ -4,6 +4,7 @@ import cats.data.OptionT
 import cats.effect.Sync
 import cats.effect.std.Env
 import com.comcast.ip4s._
+import com.typesafe.config.ConfigFactory
 import io.circe.generic.semiauto._
 import io.circe.{Codec, Decoder, Encoder}
 import org.http4s.Uri
@@ -15,11 +16,14 @@ case class Config(
                    httpPort: Option[Port],
                    prometheus: Option[Config.PrometheusConf],
                    alertmanager: Option[Config.AlertmanagerConf],
-                   warnDelay: Option[FiniteDuration]
+                   warnDelay: Option[FiniteDuration],
+                   debug: Option[Boolean]
                  ) {
   val httpPortOrDefault: Port = httpPort.getOrElse(port"8080")
 
   val warnDelayOrDefault: FiniteDuration = warnDelay.getOrElse(10.seconds)
+
+  val debugOrDefault: Boolean = debug.getOrElse(false)
 }
 
 object Config {
@@ -72,9 +76,11 @@ object Config {
 
   implicit val codec: Codec[Config] = deriveCodec
 
-  def fromEnv[F[_] : Sync](env: Env[F]): F[Config] =
-    OptionT(env.get("CONFIG"))
-      .toRight(new IllegalArgumentException("Missing environment variable: CONFIG"))
-      .subflatMap(io.circe.config.parser.decode[Config](_))
+  def fromEnv[F[_] : Sync : Env](name: String): F[Config] =
+    OptionT(Env[F].get(name))
+      .toRight(new IllegalArgumentException(s"Missing environment variable: $name"))
+      .subflatMap(string =>
+        io.circe.config.parser.decode[Config](ConfigFactory.load(ConfigFactory.parseString(string)))
+      )
       .rethrowT
 }

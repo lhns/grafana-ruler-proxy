@@ -4,7 +4,7 @@ import cats.Monad
 import cats.data.EitherT
 import cats.effect.syntax.spawn._
 import cats.effect.syntax.temporal._
-import cats.effect.{Async, Concurrent, IO}
+import cats.effect.{Async, Concurrent}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import de.lolhens.http4s.proxy.Http4sProxy._
@@ -59,7 +59,7 @@ package object route {
     }
   }
 
-  val reloadRequest: Request[IO] = Request[IO](
+  def reloadRequest[F[_]]: Request[F] = Request[F](
     method = Method.POST,
     uri = Uri() / "-" / "reload"
   )
