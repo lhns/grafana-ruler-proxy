@@ -6,13 +6,13 @@ val V = new {
   val circeConfig = "0.10.0"
   val circeOptics = "0.15.0"
   val circeYaml = "0.15.1"
-  val http4s = "0.23.23"
+  val http4s = "0.23.24"
   val http4sJdkHttpClient = "0.9.1"
   val http4sProxy = "0.4.1"
   val logbackClassic = "1.4.11"
   val munit = "0.7.29"
   val munitTaglessFinal = "0.2.0"
-  val proxyVole = "1.1.0"
+  val proxyVole = "1.1.2"
   val trustmanagerUtils = "1.0.0"
 }
 
