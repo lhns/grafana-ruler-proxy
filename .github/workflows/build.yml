@@ -77,6 +77,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | wc -c
       - uses: scalacenter/sbt-dependency-submission@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
