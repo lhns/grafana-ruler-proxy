@@ -72,3 +72,9 @@ jobs:
 
           for TAG in "${TAGS[@]}"; do docker tag "$IMAGE_NAME" "$IMAGE_ID:$TAG"; done
           for TAG in "${TAGS[@]}"; do docker push "$IMAGE_ID:$TAG"; done
+  dependency-graph:
+    name: Update Dependency Graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: scalacenter/sbt-dependency-submission@v2
