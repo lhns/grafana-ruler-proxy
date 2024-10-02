@@ -13,7 +13,7 @@ val V = new {
   val munit = "1.0.1"
   val munitTaglessFinal = "0.2.0"
   val proxyVole = "1.1.5"
-  val trustmanagerUtils = "1.0.0"
+  val trustmanagerUtils = "1.1.0"
 }
 
 lazy val commonSettings: Seq[Setting[_]] = Seq(
