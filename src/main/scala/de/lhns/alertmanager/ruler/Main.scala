@@ -43,7 +43,7 @@ object Main extends IOApp {
     for {
       config <- Resource.eval(Config.fromEnv[IO]("CONFIG"))
       _ <- Resource.eval(logger.info(s"CONFIG: ${config.asJson.spaces2}"))
-      client <- Resource.eval(JdkHttpClient.simple[IO])
+      client <- JdkHttpClient.simple[IO]
       prometheusRoutesOption <- Resource.eval {
         (for {
           prometheusConf <- OptionT.fromOption[IO](config.prometheus)
