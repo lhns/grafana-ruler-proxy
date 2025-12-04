@@ -1,4 +1,4 @@
-ThisBuild / scalaVersion := "2.13.17"
+ThisBuild / scalaVersion := "2.13.18"
 
 val V = new {
   val catsEffect = "3.6.3"
@@ -6,11 +6,11 @@ val V = new {
   val circeConfig = "0.10.0"
   val circeOptics = "0.15.1"
   val circeYaml = "0.16.1"
-  val http4s = "0.23.32"
-  val http4sJdkHttpClient = "0.9.2"
+  val http4s = "0.23.33"
+  val http4sJdkHttpClient = "0.10.0"
   val http4sProxy = "0.4.1"
   val logbackClassic = "1.5.21"
-  val munit = "1.0.4"
+  val munit = "1.2.1"
   val munitTaglessFinal = "0.2.0"
   val proxyVole = "1.1.7"
   val trustmanagerUtils = "1.1.0"
