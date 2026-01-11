@@ -12,7 +12,7 @@ val V = new {
   val logbackClassic = "1.5.21"
   val munit = "1.2.1"
   val munitTaglessFinal = "0.2.0"
-  val proxyVole = "1.1.7"
+  val proxyVole = "1.1.8"
   val trustmanagerUtils = "1.1.0"
 }
 
