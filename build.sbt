@@ -1,4 +1,4 @@
-ThisBuild / scalaVersion := "2.13.18"
+ThisBuild / scalaVersion := "3.8.1"
 
 val V = new {
   val catsEffect = "3.6.3"
