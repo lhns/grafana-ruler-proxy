@@ -1,4 +1,4 @@
-ThisBuild / scalaVersion := "2.13.18"
+ThisBuild / scalaVersion := "3.8.1"
 
 val V = new {
   val catsEffect = "3.6.3"
@@ -22,12 +22,13 @@ lazy val commonSettings: Seq[Setting[_]] = Seq(
     sys.env.get("CI_VERSION").collect { case Tag(tag) => tag }
       .getOrElse("0.0.1-SNAPSHOT")
   },
-  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   libraryDependencies ++= Seq(
     "ch.qos.logback" % "logback-classic" % V.logbackClassic % Test,
     "de.lolhens" %% "munit-tagless-final" % V.munitTaglessFinal % Test,
     "org.scalameta" %% "munit" % V.munit % Test
-  ),
+  ) ++ (if (scalaBinaryVersion.value == "2.13") Seq(
+    compilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
+  ) else Seq.empty),
   testFrameworks += new TestFramework("munit.Framework"),
   assembly / assemblyJarName := s"${name.value}-${version.value}.sh.bat",
   assembly / assemblyOption := (assembly / assemblyOption).value
