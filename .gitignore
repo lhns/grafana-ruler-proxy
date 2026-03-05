@@ -39,6 +39,11 @@ project/plugins/project/
 .cache
 .lib/
 .bsp/
+**/.bloop/
+**/.metals/
+**/.vscode/
+**/metals.sbt
+.scala-build/
 
 ## sbt-hackling
 libling/
