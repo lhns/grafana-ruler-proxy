@@ -43,6 +43,10 @@ The Proxy will act as the Grafana data source and forward all metrics queries to
 
 https://grafana.com/docs/mimir/latest/operators-guide/reference-http-api/#ruler
 
+## Architecture Decision Records
+
+Architecture decisions for this project are documented in [`adr/`](adr/README.md).
+
 ## License
 
 This project uses the Apache 2.0 License. See the file called LICENSE.
